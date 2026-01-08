@@ -8,8 +8,7 @@ import {
   FileText,
   ChefHat,
   Menu,
-  X,
-  Database
+  X
 } from "lucide-react";
 
 interface LayoutProps {
@@ -35,11 +34,6 @@ const Layout = ({ children }: LayoutProps) => {
       title: "Laporan Penjualan",
       href: "/laporan-penjualan",
       icon: FileText,
-    },
-    {
-      title: "Test Data",
-      href: "/test-data",
-      icon: Database,
     },
   ];
 
