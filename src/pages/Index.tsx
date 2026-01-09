@@ -2,58 +2,68 @@ import { useState, useEffect } from "react";
 import Layout from "@/components/Layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { supabase } from "@/integrations/supabase/client";
+import { PreorderData, PurchaseData, SaleData, TABLE_NAMES } from "@/types/database";
 import { 
   TrendingUp, 
   TrendingDown, 
   Users, 
   ShoppingCart, 
   Package,
-  DollarSign
+  DollarSign,
+  Loader2
 } from "lucide-react";
-
-interface PreorderData {
-  id: string;
-  customerName: string;
-  quantity: number;
-  date: string;
-}
-
-interface PurchaseData {
-  id: string;
-  quantity: number;
-  weight: number;
-  pricePerKg: number;
-  totalPrice: number;
-  date: string;
-}
-
-interface SaleData {
-  id: string;
-  customerName: string;
-  quantity: number;
-  weight: number;
-  pricePerKg: number;
-  totalPrice: number;
-  date: string;
-}
 
 const Index = () => {
   const [preorders, setPreorders] = useState<PreorderData[]>([]);
   const [purchases, setPurchases] = useState<PurchaseData[]>([]);
   const [sales, setSales] = useState<SaleData[]>([]);
+  const [loading, setLoading] = useState(true);
 
   // Get today's date in YYYY-MM-DD format
   const today = new Date().toISOString().split('T')[0];
 
-  // Load data from localStorage
+  // Load data from Supabase
   useEffect(() => {
-    const savedPreorders = localStorage.getItem('preorders');
-    const savedPurchases = localStorage.getItem('purchases');
-    const savedSales = localStorage.getItem('sales');
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        
+        // Load preorders
+        const { data: preordersData, error: preordersError } = await supabase
+          .from(TABLE_NAMES.PREORDERS)
+          .select('*')
+          .order('date', { ascending: false });
+        
+        if (preordersError) throw preordersError;
+        
+        // Load purchases
+        const { data: purchasesData, error: purchasesError } = await supabase
+          .from(TABLE_NAMES.PURCHASES)
+          .select('*')
+          .order('date', { ascending: false });
+        
+        if (purchasesError) throw purchasesError;
+        
+        // Load sales
+        const { data: salesData, error: salesError } = await supabase
+          .from(TABLE_NAMES.SALES)
+          .select('*')
+          .order('date', { ascending: false });
+        
+        if (salesError) throw salesError;
+        
+        setPreorders(preordersData || []);
+        setPurchases(purchasesData || []);
+        setSales(salesData || []);
+      } catch (error) {
+        console.error('Error loading data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    if (savedPreorders) setPreorders(JSON.parse(savedPreorders));
-    if (savedPurchases) setPurchases(JSON.parse(savedPurchases));
-    if (savedSales) setSales(JSON.parse(savedSales));
+    loadData();
   }, []);
 
   // Filter today's data
@@ -65,8 +75,8 @@ const Index = () => {
   const totalPreorderQuantity = todayPreorders.reduce((sum, item) => sum + item.quantity, 0);
   const totalPurchaseQuantity = todayPurchases.reduce((sum, item) => sum + item.quantity, 0);
   const totalPurchaseWeight = todayPurchases.reduce((sum, item) => sum + item.weight, 0);
-  const totalPurchasePrice = todayPurchases.reduce((sum, item) => sum + item.totalPrice, 0);
-  const totalSalesPrice = todaySales.reduce((sum, item) => sum + item.totalPrice, 0);
+  const totalPurchasePrice = todayPurchases.reduce((sum, item) => sum + item.total_price, 0);
+  const totalSalesPrice = todaySales.reduce((sum, item) => sum + item.total_price, 0);
 
   // Calculate profit/loss
   const profitLoss = totalSalesPrice - totalPurchasePrice;
@@ -90,6 +100,12 @@ const Index = () => {
             <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
             <p className="text-gray-600 mt-1">Monitoring penjualan hari ini - {new Date().toLocaleDateString('id-ID')}</p>
           </div>
+          {loading && (
+            <div className="flex items-center gap-2 text-gray-600">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">Memuat data...</span>
+            </div>
+          )}
         </div>
 
         {/* Stats Cards */}
@@ -160,7 +176,7 @@ const Index = () => {
                 {todayPreorders.map((preorder) => (
                   <div key={preorder.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                     <div>
-                      <p className="font-medium text-gray-900">{preorder.customerName}</p>
+                      <p className="font-medium text-gray-900">{preorder.customer_name}</p>
                       <p className="text-sm text-gray-600">{preorder.quantity} ekor</p>
                     </div>
                   </div>
@@ -201,11 +217,11 @@ const Index = () => {
                       </div>
                       <div>
                         <p className="text-sm text-gray-600">Harga per Kg</p>
-                        <p className="font-medium">{formatCurrency(purchase.pricePerKg)}</p>
+                        <p className="font-medium">{formatCurrency(purchase.price_per_kg)}</p>
                       </div>
                       <div>
                         <p className="text-sm text-gray-600">Total Harga</p>
-                        <p className="font-medium text-green-600">{formatCurrency(purchase.totalPrice)}</p>
+                        <p className="font-medium text-green-600">{formatCurrency(purchase.total_price)}</p>
                       </div>
                     </div>
                   </div>
@@ -248,8 +264,8 @@ const Index = () => {
                 {todaySales.map((sale) => (
                   <div key={sale.id} className="p-4 bg-gray-50 rounded-lg">
                     <div className="flex items-center justify-between mb-2">
-                      <h4 className="font-medium text-gray-900">{sale.customerName}</h4>
-                      <Badge variant="outline">{formatCurrency(sale.totalPrice)}</Badge>
+                      <h4 className="font-medium text-gray-900">{sale.customer_name}</h4>
+                      <Badge variant="outline">{formatCurrency(sale.total_price)}</Badge>
                     </div>
                     <div className="grid grid-cols-3 gap-4 text-sm">
                       <div>
@@ -262,7 +278,7 @@ const Index = () => {
                       </div>
                       <div>
                         <p className="text-gray-600">Harga per Kg</p>
-                        <p className="font-medium">{formatCurrency(sale.pricePerKg)}</p>
+                        <p className="font-medium">{formatCurrency(sale.price_per_kg)}</p>
                       </div>
                     </div>
                   </div>

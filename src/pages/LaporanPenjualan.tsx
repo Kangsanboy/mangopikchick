@@ -7,24 +7,17 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+import { SaleData, TABLE_NAMES } from "@/types/database";
 import { 
   Download, 
   FileText, 
   Calendar,
   Users,
   TrendingUp,
-  Filter
+  Filter,
+  Loader2
 } from "lucide-react";
-
-interface SaleData {
-  id: string;
-  customerName: string;
-  quantity: number;
-  weight: number;
-  pricePerKg: number;
-  totalPrice: number;
-  date: string;
-}
 
 const LaporanPenjualan = () => {
   const { toast } = useToast();
@@ -33,15 +26,35 @@ const LaporanPenjualan = () => {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [customerFilter, setCustomerFilter] = useState("");
+  const [loading, setLoading] = useState(true);
 
-  // Load data from localStorage
+  // Load data from Supabase
   useEffect(() => {
-    const savedSales = localStorage.getItem('sales');
-    if (savedSales) {
-      const salesData = JSON.parse(savedSales);
-      setSales(salesData);
-      setFilteredSales(salesData);
-    }
+    const loadSales = async () => {
+      try {
+        setLoading(true);
+        const { data: salesData, error } = await supabase
+          .from(TABLE_NAMES.SALES)
+          .select('*')
+          .order('date', { ascending: false });
+        
+        if (error) throw error;
+        
+        setSales(salesData || []);
+        setFilteredSales(salesData || []);
+      } catch (error) {
+        console.error('Error loading sales data:', error);
+        toast({
+          title: "Error",
+          description: "Gagal memuat data penjualan",
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadSales();
   }, []);
 
   // Filter sales data
@@ -59,7 +72,7 @@ const LaporanPenjualan = () => {
     // Filter by customer name
     if (customerFilter) {
       filtered = filtered.filter(sale => 
-        sale.customerName.toLowerCase().includes(customerFilter.toLowerCase())
+        sale.customer_name.toLowerCase().includes(customerFilter.toLowerCase())
       );
     }
 
@@ -81,8 +94,8 @@ const LaporanPenjualan = () => {
   // Calculate totals
   const totalQuantity = filteredSales.reduce((sum, sale) => sum + sale.quantity, 0);
   const totalWeight = filteredSales.reduce((sum, sale) => sum + sale.weight, 0);
-  const totalRevenue = filteredSales.reduce((sum, sale) => sum + sale.totalPrice, 0);
-  const uniqueCustomers = new Set(filteredSales.map(sale => sale.customerName)).size;
+  const totalRevenue = filteredSales.reduce((sum, sale) => sum + sale.total_price, 0);
+  const uniqueCustomers = new Set(filteredSales.map(sale => sale.customer_name)).size;
 
   // Export to Excel (CSV format)
   const exportToExcel = () => {
@@ -108,11 +121,11 @@ const LaporanPenjualan = () => {
     // Format data rows
     const dataRows = filteredSales.map(sale => [
       new Date(sale.date).toLocaleDateString('id-ID'),
-      `"${sale.customerName}"`,
+      `"${sale.customer_name}"`,
       sale.quantity,
       sale.weight.toFixed(1),
-      sale.pricePerKg.toLocaleString('id-ID'),
-      sale.totalPrice.toLocaleString('id-ID')
+      sale.price_per_kg.toLocaleString('id-ID'),
+      sale.total_price.toLocaleString('id-ID')
     ]);
 
     // Create CSV content
@@ -198,8 +211,14 @@ const LaporanPenjualan = () => {
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Laporan Penjualan</h1>
             <p className="text-gray-600 mt-1">Lihat dan unduh laporan penjualan detail</p>
+            {loading && (
+              <div className="flex items-center gap-2 text-gray-600 mt-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-sm">Memuat data...</span>
+              </div>
+            )}
           </div>
-          <Button onClick={exportToExcel} className="bg-green-600 hover:bg-green-700">
+          <Button onClick={exportToExcel} className="bg-green-600 hover:bg-green-700" disabled={loading}>
             <Download className="h-4 w-4 mr-2" />
             Unduh Excel
           </Button>
@@ -334,12 +353,12 @@ const LaporanPenjualan = () => {
                             {new Date(sale.date).toLocaleDateString('id-ID')}
                           </div>
                         </TableCell>
-                        <TableCell className="font-medium">{sale.customerName}</TableCell>
+                        <TableCell className="font-medium">{sale.customer_name}</TableCell>
                         <TableCell className="text-right">{sale.quantity} ekor</TableCell>
                         <TableCell className="text-right">{sale.weight} Kg</TableCell>
-                        <TableCell className="text-right">{formatCurrency(sale.pricePerKg)}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(sale.price_per_kg)}</TableCell>
                         <TableCell className="text-right font-medium text-green-600">
-                          {formatCurrency(sale.totalPrice)}
+                          {formatCurrency(sale.total_price)}
                         </TableCell>
                       </TableRow>
                     ))}

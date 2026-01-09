@@ -7,37 +7,14 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { CalendarDays, Plus, Save } from "lucide-react";
-
-interface PreorderData {
-  id: string;
-  customerName: string;
-  quantity: number;
-  date: string;
-}
-
-interface PurchaseData {
-  id: string;
-  quantity: number;
-  weight: number;
-  pricePerKg: number;
-  totalPrice: number;
-  date: string;
-}
-
-interface SaleData {
-  id: string;
-  customerName: string;
-  quantity: number;
-  weight: number;
-  pricePerKg: number;
-  totalPrice: number;
-  date: string;
-}
+import { supabase } from "@/integrations/supabase/client";
+import { PreorderData, PurchaseData, SaleData, TABLE_NAMES } from "@/types/database";
+import { CalendarDays, Plus, Loader2 } from "lucide-react";
 
 const InputData = () => {
   const { toast } = useToast();
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [loading, setLoading] = useState(false);
   
   // Preorder state
   const [preorderCustomer, setPreorderCustomer] = useState("");
@@ -62,36 +39,85 @@ const InputData = () => {
   // Available customers from preorders for the selected date
   const [availableCustomers, setAvailableCustomers] = useState<string[]>([]);
 
-  // Load data from localStorage
+  // Load data from Supabase
   useEffect(() => {
-    const savedPreorders = localStorage.getItem('preorders');
-    const savedPurchases = localStorage.getItem('purchases');
-    const savedSales = localStorage.getItem('sales');
+    const loadData = async () => {
+      try {
+        // Load preorders
+        const { data: preordersData, error: preordersError } = await supabase
+          .from(TABLE_NAMES.PREORDERS)
+          .select('*')
+          .order('date', { ascending: false });
+        
+        if (preordersError) throw preordersError;
+        
+        // Load purchases
+        const { data: purchasesData, error: purchasesError } = await supabase
+          .from(TABLE_NAMES.PURCHASES)
+          .select('*')
+          .order('date', { ascending: false });
+        
+        if (purchasesError) throw purchasesError;
+        
+        // Load sales
+        const { data: salesData, error: salesError } = await supabase
+          .from(TABLE_NAMES.SALES)
+          .select('*')
+          .order('date', { ascending: false });
+        
+        if (salesError) throw salesError;
+        
+        setPreorders(preordersData || []);
+        setPurchases(purchasesData || []);
+        setSales(salesData || []);
+      } catch (error) {
+        console.error('Error loading data:', error);
+        toast({
+          title: "Error",
+          description: "Gagal memuat data dari database",
+          variant: "destructive",
+        });
+      }
+    };
 
-    if (savedPreorders) setPreorders(JSON.parse(savedPreorders));
-    if (savedPurchases) setPurchases(JSON.parse(savedPurchases));
-    if (savedSales) setSales(JSON.parse(savedSales));
+    loadData();
   }, []);
 
   // Update available customers when date or preorders change
   useEffect(() => {
     const datePreorders = preorders.filter(p => p.date === selectedDate);
-    const customerNames = datePreorders.map(p => p.customerName);
+    const customerNames = datePreorders.map(p => p.customer_name);
     setAvailableCustomers(customerNames);
   }, [selectedDate, preorders]);
 
-  // Save data to localStorage
-  const saveToLocalStorage = (key: string, data: any[]) => {
-    localStorage.setItem(key, JSON.stringify(data));
-  };
-
-  // Generate unique ID
-  const generateId = () => {
-    return Date.now().toString() + Math.random().toString(36).substr(2, 9);
+  // Refresh data from database
+  const refreshData = async () => {
+    try {
+      const { data: preordersData } = await supabase
+        .from(TABLE_NAMES.PREORDERS)
+        .select('*')
+        .order('date', { ascending: false });
+      
+      const { data: purchasesData } = await supabase
+        .from(TABLE_NAMES.PURCHASES)
+        .select('*')
+        .order('date', { ascending: false });
+      
+      const { data: salesData } = await supabase
+        .from(TABLE_NAMES.SALES)
+        .select('*')
+        .order('date', { ascending: false });
+      
+      setPreorders(preordersData || []);
+      setPurchases(purchasesData || []);
+      setSales(salesData || []);
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+    }
   };
 
   // Add preorder
-  const addPreorder = () => {
+  const addPreorder = async () => {
     if (!preorderCustomer.trim() || !preorderQuantity) {
       toast({
         title: "Error",
@@ -101,29 +127,43 @@ const InputData = () => {
       return;
     }
 
-    const newPreorder: PreorderData = {
-      id: generateId(),
-      customerName: preorderCustomer.trim(),
-      quantity: parseInt(preorderQuantity),
-      date: selectedDate,
-    };
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from(TABLE_NAMES.PREORDERS)
+        .insert({
+          customer_name: preorderCustomer.trim(),
+          quantity: parseInt(preorderQuantity),
+          date: selectedDate,
+        });
 
-    const updatedPreorders = [...preorders, newPreorder];
-    setPreorders(updatedPreorders);
-    saveToLocalStorage('preorders', updatedPreorders);
+      if (error) throw error;
 
-    // Reset form
-    setPreorderCustomer("");
-    setPreorderQuantity("");
+      // Reset form
+      setPreorderCustomer("");
+      setPreorderQuantity("");
 
-    toast({
-      title: "Berhasil",
-      description: "Data preorder berhasil ditambahkan",
-    });
+      // Refresh data
+      await refreshData();
+
+      toast({
+        title: "Berhasil",
+        description: "Data preorder berhasil ditambahkan",
+      });
+    } catch (error) {
+      console.error('Error adding preorder:', error);
+      toast({
+        title: "Error",
+        description: "Gagal menambahkan data preorder",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Add purchase
-  const addPurchase = () => {
+  const addPurchase = async () => {
     if (!purchaseQuantity || !purchaseWeight || !purchasePricePerKg) {
       toast({
         title: "Error",
@@ -133,37 +173,51 @@ const InputData = () => {
       return;
     }
 
-    const quantity = parseInt(purchaseQuantity);
-    const weight = parseFloat(purchaseWeight);
-    const pricePerKg = parseFloat(purchasePricePerKg);
-    const totalPrice = weight * pricePerKg;
+    setLoading(true);
+    try {
+      const quantity = parseInt(purchaseQuantity);
+      const weight = parseFloat(purchaseWeight);
+      const pricePerKg = parseFloat(purchasePricePerKg);
+      const totalPrice = Math.round(weight * pricePerKg);
 
-    const newPurchase: PurchaseData = {
-      id: generateId(),
-      quantity,
-      weight,
-      pricePerKg,
-      totalPrice,
-      date: selectedDate,
-    };
+      const { error } = await supabase
+        .from(TABLE_NAMES.PURCHASES)
+        .insert({
+          quantity,
+          weight,
+          price_per_kg: pricePerKg,
+          total_price: totalPrice,
+          date: selectedDate,
+        });
 
-    const updatedPurchases = [...purchases, newPurchase];
-    setPurchases(updatedPurchases);
-    saveToLocalStorage('purchases', updatedPurchases);
+      if (error) throw error;
 
-    // Reset form
-    setPurchaseQuantity("");
-    setPurchaseWeight("");
-    setPurchasePricePerKg("");
+      // Reset form
+      setPurchaseQuantity("");
+      setPurchaseWeight("");
+      setPurchasePricePerKg("");
 
-    toast({
-      title: "Berhasil",
-      description: "Data pembelian berhasil ditambahkan",
-    });
+      // Refresh data
+      await refreshData();
+
+      toast({
+        title: "Berhasil",
+        description: "Data pembelian berhasil ditambahkan",
+      });
+    } catch (error) {
+      console.error('Error adding purchase:', error);
+      toast({
+        title: "Error",
+        description: "Gagal menambahkan data pembelian",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Add sale
-  const addSale = () => {
+  const addSale = async () => {
     if (!saleCustomer || !saleQuantity || !saleWeight || !salePricePerKg) {
       toast({
         title: "Error",
@@ -173,35 +227,49 @@ const InputData = () => {
       return;
     }
 
-    const quantity = parseInt(saleQuantity);
-    const weight = parseFloat(saleWeight);
-    const pricePerKg = parseFloat(salePricePerKg);
-    const totalPrice = weight * pricePerKg;
+    setLoading(true);
+    try {
+      const quantity = parseInt(saleQuantity);
+      const weight = parseFloat(saleWeight);
+      const pricePerKg = parseFloat(salePricePerKg);
+      const totalPrice = Math.round(weight * pricePerKg);
 
-    const newSale: SaleData = {
-      id: generateId(),
-      customerName: saleCustomer,
-      quantity,
-      weight,
-      pricePerKg,
-      totalPrice,
-      date: selectedDate,
-    };
+      const { error } = await supabase
+        .from(TABLE_NAMES.SALES)
+        .insert({
+          customer_name: saleCustomer,
+          quantity,
+          weight,
+          price_per_kg: pricePerKg,
+          total_price: totalPrice,
+          date: selectedDate,
+        });
 
-    const updatedSales = [...sales, newSale];
-    setSales(updatedSales);
-    saveToLocalStorage('sales', updatedSales);
+      if (error) throw error;
 
-    // Reset form
-    setSaleCustomer("");
-    setSaleQuantity("");
-    setSaleWeight("");
-    setSalePricePerKg("");
+      // Reset form
+      setSaleCustomer("");
+      setSaleQuantity("");
+      setSaleWeight("");
+      setSalePricePerKg("");
 
-    toast({
-      title: "Berhasil",
-      description: "Data penjualan berhasil ditambahkan",
-    });
+      // Refresh data
+      await refreshData();
+
+      toast({
+        title: "Berhasil",
+        description: "Data penjualan berhasil ditambahkan",
+      });
+    } catch (error) {
+      console.error('Error adding sale:', error);
+      toast({
+        title: "Error",
+        description: "Gagal menambahkan data penjualan",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Format currency
@@ -279,8 +347,8 @@ const InputData = () => {
                 />
               </div>
 
-              <Button onClick={addPreorder} className="w-full">
-                <Plus className="h-4 w-4 mr-2" />
+              <Button onClick={addPreorder} className="w-full" disabled={loading}>
+                {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
                 Tambah Preorder
               </Button>
 
@@ -293,7 +361,7 @@ const InputData = () => {
                   .filter(p => p.date === selectedDate)
                   .map((preorder) => (
                     <div key={preorder.id} className="p-2 bg-blue-50 rounded text-sm">
-                      <p className="font-medium">{preorder.customerName}</p>
+                      <p className="font-medium">{preorder.customer_name}</p>
                       <p className="text-gray-600">{preorder.quantity} ekor</p>
                     </div>
                   ))}
@@ -352,8 +420,8 @@ const InputData = () => {
                 </div>
               )}
 
-              <Button onClick={addPurchase} className="w-full">
-                <Plus className="h-4 w-4 mr-2" />
+              <Button onClick={addPurchase} className="w-full" disabled={loading}>
+                {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
                 Tambah Pembelian
               </Button>
 
@@ -447,8 +515,8 @@ const InputData = () => {
                 </div>
               )}
 
-              <Button onClick={addSale} className="w-full" disabled={availableCustomers.length === 0}>
-                <Plus className="h-4 w-4 mr-2" />
+              <Button onClick={addSale} className="w-full" disabled={availableCustomers.length === 0 || loading}>
+                {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
                 Tambah Penjualan
               </Button>
 
