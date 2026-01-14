@@ -9,8 +9,15 @@ import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { SaleData, PreorderData, ProductMaster, TABLE_NAMES } from "@/types/database";
+import { SaleData, ProductMaster, TABLE_NAMES } from "@/types/database";
 import { CalendarDays, Plus, Loader2, DollarSign } from "lucide-react";
+
+// Definisikan type lokal untuk Customer
+interface CustomerMaster {
+  id: string;
+  customer_name: string;
+  default_quantity: number;
+}
 
 const Penjualan = () => {
   const { toast } = useToast();
@@ -26,59 +33,61 @@ const Penjualan = () => {
   
   // Data
   const [sales, setSales] = useState<SaleData[]>([]);
-  const [preorders, setPreorders] = useState<PreorderData[]>([]);
   const [products, setProducts] = useState<ProductMaster[]>([]);
-  const [availableCustomers, setAvailableCustomers] = useState<string[]>([]);
+  // Ganti availableCustomers (string[]) menjadi masterCustomers (object[])
+  const [masterCustomers, setMasterCustomers] = useState<CustomerMaster[]>([]);
 
-  // Load data from Supabase
+  // Load data awal
   useEffect(() => {
-    loadData();
+    loadMasterData();
   }, []);
 
-  // Update available customers when date or preorders change
+  // Load data penjualan saat tanggal berubah
   useEffect(() => {
-    const datePreorders = preorders.filter(p => p.date === selectedDate);
-    const customerNames = datePreorders.map(p => p.customer_name);
-    setAvailableCustomers(customerNames);
-  }, [selectedDate, preorders]);
+    loadSalesForDate();
+  }, [selectedDate]);
 
-  const loadData = async () => {
+  const loadMasterData = async () => {
     try {
-      // Load sales
-      const { data: salesData, error: salesError } = await supabase
-        .from(TABLE_NAMES.SALES)
-        .select('*')
-        .order('date', { ascending: false });
-      
-      if (salesError) throw salesError;
-      
-      // Load preorders
-      const { data: preordersData, error: preordersError } = await supabase
-        .from(TABLE_NAMES.PREORDERS)
-        .select('*')
-        .order('date', { ascending: false });
-      
-      if (preordersError) throw preordersError;
-      
-      // Load products
-      const { data: productsData, error: productsError } = await supabase
+      // 1. Load Products
+      const { data: productsData } = await supabase
         .from(TABLE_NAMES.PRODUCT_MASTER)
         .select('*')
         .eq('is_active', true)
         .order('product_name', { ascending: true });
       
-      if (productsError) throw productsError;
-      
-      setSales(salesData || []);
-      setPreorders(preordersData || []);
+      // 2. Load Customer Master (SUMBER BARU)
+      const { data: customersData } = await supabase
+        .from('customer_master')
+        .select('*')
+        .eq('is_active', true)
+        .order('customer_name', { ascending: true });
+
       setProducts(productsData || []);
+      setMasterCustomers(customersData || []);
+      
     } catch (error) {
-      console.error('Error loading data:', error);
+      console.error('Error loading master data:', error);
       toast({
         title: "Error",
-        description: "Gagal memuat data",
+        description: "Gagal memuat data master",
         variant: "destructive",
       });
+    }
+  };
+
+  const loadSalesForDate = async () => {
+    try {
+        const { data: salesData, error } = await supabase
+            .from(TABLE_NAMES.SALES)
+            .select('*')
+            .eq('date', selectedDate) // Filter langsung dari DB biar ringan
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        setSales(salesData || []);
+    } catch (error) {
+        console.error('Error loading sales:', error);
     }
   };
 
@@ -88,6 +97,16 @@ const Penjualan = () => {
     const selectedProduct = products.find(p => p.product_name === productName);
     if (selectedProduct) {
       setPricePerKg(selectedProduct.price_per_kg.toString());
+    }
+  };
+
+  // Handle Customer Selection (Auto-fill Quantity)
+  const handleCustomerChange = (name: string) => {
+    setCustomerName(name);
+    // Cari data customer yang dipilih untuk ambil default quantity
+    const customer = masterCustomers.find(c => c.customer_name === name);
+    if (customer && customer.default_quantity) {
+      setQuantity(customer.default_quantity.toString());
     }
   };
 
@@ -123,15 +142,16 @@ const Penjualan = () => {
 
       if (error) throw error;
 
-      // Reset form
+      // Reset form (kecuali customer biar cepat input lagi kalau mau)
+      // Tapi biasanya reset semua. Kita reset semua field input.
       setCustomerName("");
       setProductType("");
       setQuantity("");
       setWeight("");
       setPricePerKg("");
 
-      // Refresh data
-      await loadData();
+      // Refresh Data Penjualan
+      await loadSalesForDate();
 
       toast({
         title: "Berhasil",
@@ -149,7 +169,6 @@ const Penjualan = () => {
     }
   };
 
-  // Format currency
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('id-ID', {
       style: 'currency',
@@ -157,9 +176,6 @@ const Penjualan = () => {
       minimumFractionDigits: 0,
     }).format(amount);
   };
-
-  // Filter sales for selected date
-  const todaySales = sales.filter(s => s.date === selectedDate);
 
   return (
     <Layout>
@@ -205,20 +221,21 @@ const Penjualan = () => {
           <CardContent className="space-y-4">
             <div>
               <Label htmlFor="customer-name">Nama Pelanggan</Label>
-              <Select value={customerName} onValueChange={setCustomerName}>
+              {/* Menggunakan data dari Master Customer */}
+              <Select value={customerName} onValueChange={handleCustomerChange}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Pilih pelanggan dari preorder" />
+                  <SelectValue placeholder="Pilih pelanggan dari Data Master" />
                 </SelectTrigger>
                 <SelectContent>
-                  {availableCustomers.length > 0 ? (
-                    availableCustomers.map((customer, index) => (
-                      <SelectItem key={index} value={customer}>
-                        {customer}
+                  {masterCustomers.length > 0 ? (
+                    masterCustomers.map((customer) => (
+                      <SelectItem key={customer.id} value={customer.customer_name}>
+                        {customer.customer_name}
                       </SelectItem>
                     ))
                   ) : (
                     <SelectItem value="none" disabled>
-                      Belum ada preorder untuk tanggal ini
+                      Belum ada pelanggan di Data Master
                     </SelectItem>
                   )}
                 </SelectContent>
@@ -240,7 +257,7 @@ const Penjualan = () => {
                     ))
                   ) : (
                     <SelectItem value="none" disabled>
-                      Belum ada produk di data master
+                      Belum ada produk di Data Master
                     </SelectItem>
                   )}
                 </SelectContent>
@@ -254,7 +271,7 @@ const Penjualan = () => {
                 type="number"
                 value={quantity}
                 onChange={(e) => setQuantity(e.target.value)}
-                placeholder="Jumlah ekor"
+                placeholder="Jumlah ekor (Otomatis terisi jika ada default)"
                 min="1"
               />
             </div>
@@ -295,23 +312,11 @@ const Penjualan = () => {
             <Button 
               onClick={addSale} 
               className="w-full" 
-              disabled={availableCustomers.length === 0 || products.length === 0 || loading}
+              disabled={loading}
             >
               {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
               Tambah Penjualan
             </Button>
-
-            {availableCustomers.length === 0 && (
-              <p className="text-sm text-amber-600 text-center">
-                Silakan tambahkan preorder untuk tanggal ini terlebih dahulu
-              </p>
-            )}
-
-            {products.length === 0 && (
-              <p className="text-sm text-amber-600 text-center">
-                Silakan tambahkan produk di menu Data Master terlebih dahulu
-              </p>
-            )}
           </CardContent>
         </Card>
 
@@ -324,9 +329,9 @@ const Penjualan = () => {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {todaySales.length > 0 ? (
+            {sales.length > 0 ? (
               <div className="space-y-3">
-                {todaySales.map((sale) => (
+                {sales.map((sale) => (
                   <div key={sale.id} className="p-4 bg-purple-50 rounded-lg">
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="font-medium text-gray-900">{sale.customer_name}</h4>
@@ -359,7 +364,7 @@ const Penjualan = () => {
                 <Separator />
                 <div className="text-center">
                   <p className="text-sm font-medium text-gray-700">
-                    Total Penjualan: {formatCurrency(todaySales.reduce((sum, s) => sum + s.total_price, 0))} dari {todaySales.length} pelanggan
+                    Total Penjualan: {formatCurrency(sales.reduce((sum, s) => sum + s.total_price, 0))} dari {sales.length} pelanggan
                   </p>
                 </div>
               </div>
