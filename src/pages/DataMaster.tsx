@@ -4,56 +4,152 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { ProductMaster, TABLE_NAMES } from "@/types/database";
-import { 
-  Plus, 
-  Edit, 
-  Trash2, 
-  Package,
-  Loader2,
-  Save,
-  X
-} from "lucide-react";
+import { SaleData, ProductMaster, TABLE_NAMES } from "@/types/database";
+import { CalendarDays, Plus, Loader2, DollarSign } from "lucide-react";
 
-const DataMaster = () => {
+// Definisikan type lokal jika belum ada
+interface CustomerMaster {
+  id: string;
+  customer_name: string;
+  default_quantity: number;
+}
+
+const Penjualan = () => {
   const { toast } = useToast();
-  const [products, setProducts] = useState<ProductMaster[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [loading, setLoading] = useState(false);
   
   // Form states
-  const [productName, setProductName] = useState("");
+  const [customerName, setCustomerName] = useState("");
+  const [productType, setProductType] = useState("");
+  const [quantity, setQuantity] = useState("");
+  const [weight, setWeight] = useState("");
   const [pricePerKg, setPricePerKg] = useState("");
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingName, setEditingName] = useState("");
-  const [editingPrice, setEditingPrice] = useState("");
+  
+  // Data
+  const [sales, setSales] = useState<SaleData[]>([]);
+  const [products, setProducts] = useState<ProductMaster[]>([]);
+  const [masterCustomers, setMasterCustomers] = useState<CustomerMaster[]>([]); // Ganti dari availableCustomers
 
-  // Load products from Supabase
+  // Load data from Supabase
   useEffect(() => {
-    loadProducts();
-  }, []);
+    loadData();
+  }, []); // Load sekali saat mount
 
-  const loadProducts = async () => {
+  // Load sales jika tanggal berubah
+  useEffect(() => {
+    loadSalesForDate();
+  }, [selectedDate]);
+
+  const loadData = async () => {
     try {
-      setLoading(true);
-      const { data, error } = await supabase
+      // 1. Load Products
+      const { data: productsData } = await supabase
         .from(TABLE_NAMES.PRODUCT_MASTER)
         .select('*')
         .eq('is_active', true)
         .order('product_name', { ascending: true });
       
-      if (error) throw error;
+      // 2. Load Customer Master (NEW SOURCE)
+      const { data: customersData } = await supabase
+        .from('customer_master') // Pastikan nama tabel sesuai
+        .select('*')
+        .eq('is_active', true)
+        .order('customer_name', { ascending: true });
+
+      setProducts(productsData || []);
+      setMasterCustomers(customersData || []);
       
-      setProducts(data || []);
     } catch (error) {
-      console.error('Error loading products:', error);
+      console.error('Error loading master data:', error);
+    }
+  };
+
+  const loadSalesForDate = async () => {
+    const { data: salesData, error } = await supabase
+        .from(TABLE_NAMES.SALES)
+        .select('*')
+        .order('created_at', { ascending: false }); // Load semua atau filter by date di query kalau mau lebih cepat
+
+    if (!error && salesData) {
+        setSales(salesData);
+    }
+  };
+
+  // Handle product selection
+  const handleProductChange = (productName: string) => {
+    setProductType(productName);
+    const selectedProduct = products.find(p => p.product_name === productName);
+    if (selectedProduct) {
+      setPricePerKg(selectedProduct.price_per_kg.toString());
+    }
+  };
+
+  // Handle Customer Selection (Auto-fill Quantity)
+  const handleCustomerChange = (name: string) => {
+    setCustomerName(name);
+    const customer = masterCustomers.find(c => c.customer_name === name);
+    if (customer && customer.default_quantity) {
+      setQuantity(customer.default_quantity.toString());
+    }
+  };
+
+  // Add sale
+  const addSale = async () => {
+    if (!customerName || !productType || !quantity || !weight || !pricePerKg) {
       toast({
         title: "Error",
-        description: "Gagal memuat data produk",
+        description: "Mohon lengkapi semua field penjualan",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const quantityNum = parseInt(quantity);
+      const weightNum = parseFloat(weight);
+      const pricePerKgNum = parseFloat(pricePerKg);
+      const totalPrice = Math.round(weightNum * pricePerKgNum);
+
+      const { error } = await supabase
+        .from(TABLE_NAMES.SALES)
+        .insert({
+          customer_name: customerName,
+          product_type: productType,
+          quantity: quantityNum,
+          weight: weightNum,
+          price_per_kg: pricePerKgNum,
+          total_price: totalPrice,
+          date: selectedDate,
+        });
+
+      if (error) throw error;
+
+      // Reset form (kecuali tanggal)
+      setCustomerName("");
+      setProductType("");
+      setQuantity("");
+      setWeight("");
+      setPricePerKg("");
+
+      // Refresh Sales Data
+      await loadSalesForDate();
+
+      toast({
+        title: "Berhasil",
+        description: "Data penjualan berhasil ditambahkan",
+      });
+    } catch (error) {
+      console.error('Error adding sale:', error);
+      toast({
+        title: "Error",
+        description: "Gagal menambahkan data penjualan",
         variant: "destructive",
       });
     } finally {
@@ -61,155 +157,6 @@ const DataMaster = () => {
     }
   };
 
-  // Add new product
-  const addProduct = async () => {
-    if (!productName.trim() || !pricePerKg) {
-      toast({
-        title: "Error",
-        description: "Mohon lengkapi nama produk dan harga per kg",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const { error } = await supabase
-        .from(TABLE_NAMES.PRODUCT_MASTER)
-        .insert({
-          product_name: productName.trim(),
-          price_per_kg: parseInt(pricePerKg),
-        });
-
-      if (error) throw error;
-
-      // Reset form
-      setProductName("");
-      setPricePerKg("");
-
-      // Reload products
-      await loadProducts();
-
-      toast({
-        title: "Berhasil",
-        description: "Produk berhasil ditambahkan",
-      });
-    } catch (error: any) {
-      console.error('Error adding product:', error);
-      toast({
-        title: "Error",
-        description: error.message.includes('duplicate') 
-          ? "Nama produk sudah ada" 
-          : "Gagal menambahkan produk",
-        variant: "destructive",
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Start editing
-  const startEdit = (product: ProductMaster) => {
-    setEditingId(product.id);
-    setEditingName(product.product_name);
-    setEditingPrice(product.price_per_kg.toString());
-  };
-
-  // Cancel editing
-  const cancelEdit = () => {
-    setEditingId(null);
-    setEditingName("");
-    setEditingPrice("");
-  };
-
-  // Save edit
-  const saveEdit = async (id: string) => {
-    if (!editingName.trim() || !editingPrice) {
-      toast({
-        title: "Error",
-        description: "Mohon lengkapi nama produk dan harga per kg",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const { error } = await supabase
-        .from(TABLE_NAMES.PRODUCT_MASTER)
-        .update({
-          product_name: editingName.trim(),
-          price_per_kg: parseInt(editingPrice),
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', id);
-
-      if (error) throw error;
-
-      // Reset editing state
-      setEditingId(null);
-      setEditingName("");
-      setEditingPrice("");
-
-      // Reload products
-      await loadProducts();
-
-      toast({
-        title: "Berhasil",
-        description: "Produk berhasil diperbarui",
-      });
-    } catch (error: any) {
-      console.error('Error updating product:', error);
-      toast({
-        title: "Error",
-        description: error.message.includes('duplicate') 
-          ? "Nama produk sudah ada" 
-          : "Gagal memperbarui produk",
-        variant: "destructive",
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Delete product (soft delete)
-  const deleteProduct = async (id: string, name: string) => {
-    if (!confirm(`Apakah Anda yakin ingin menghapus produk "${name}"?`)) {
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const { error } = await supabase
-        .from(TABLE_NAMES.PRODUCT_MASTER)
-        .update({
-          is_active: false,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', id);
-
-      if (error) throw error;
-
-      // Reload products
-      await loadProducts();
-
-      toast({
-        title: "Berhasil",
-        description: "Produk berhasil dihapus",
-      });
-    } catch (error) {
-      console.error('Error deleting product:', error);
-      toast({
-        title: "Error",
-        description: "Gagal menghapus produk",
-        variant: "destructive",
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Format currency
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('id-ID', {
       style: 'currency',
@@ -218,196 +165,201 @@ const DataMaster = () => {
     }).format(amount);
   };
 
+  // Filter sales for selected date
+  const todaySales = sales.filter(s => s.date === selectedDate);
+
   return (
     <Layout>
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Data Master Produk</h1>
-            <p className="text-gray-600 mt-1">Kelola jenis produk dan harga per kilogram</p>
-            {loading && (
-              <div className="flex items-center gap-2 text-gray-600 mt-2">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span className="text-sm">Memuat data...</span>
-              </div>
-            )}
+            <h1 className="text-3xl font-bold text-gray-900">Penjualan</h1>
+            <p className="text-gray-600 mt-1">Kelola data penjualan produk</p>
           </div>
         </div>
 
-        {/* Add Product Form */}
+        {/* Date Selector */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Plus className="h-5 w-5" />
-              Tambah Produk Baru
+              <CalendarDays className="h-5 w-5" />
+              Pilih Tanggal
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <Label htmlFor="product-name">Nama Produk</Label>
-                <Input
-                  id="product-name"
-                  value={productName}
-                  onChange={(e) => setProductName(e.target.value)}
-                  placeholder="Contoh: Paha, Dada, Sayap"
-                />
-              </div>
-              
-              <div>
-                <Label htmlFor="price-per-kg">Harga per Kg (Rp)</Label>
-                <Input
-                  id="price-per-kg"
-                  type="number"
-                  value={pricePerKg}
-                  onChange={(e) => setPricePerKg(e.target.value)}
-                  placeholder="25000"
-                  min="1"
-                />
-              </div>
-
-              <div className="flex items-end">
-                <Button 
-                  onClick={addProduct} 
-                  className="w-full bg-green-600 hover:bg-green-700"
-                  disabled={saving}
-                >
-                  {saving ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Plus className="h-4 w-4 mr-2" />
-                  )}
-                  Tambah Produk
-                </Button>
-              </div>
+            <div className="flex items-center gap-4">
+              <Label htmlFor="date">Tanggal:</Label>
+              <Input
+                id="date"
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="w-auto"
+              />
+              <p className="text-sm text-gray-600">
+                Data akan disimpan untuk tanggal: {new Date(selectedDate).toLocaleDateString('id-ID')}
+              </p>
             </div>
-
-            {pricePerKg && (
-              <div className="mt-4 p-3 bg-green-50 rounded-lg">
-                <p className="text-sm text-green-700">
-                  Preview: {productName || "Nama Produk"} - {formatCurrency(parseInt(pricePerKg) || 0)}/Kg
-                </p>
-              </div>
-            )}
           </CardContent>
         </Card>
 
-        {/* Products Table */}
+        {/* Sale Form */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center justify-between">
-              <span className="flex items-center gap-2">
-                <Package className="h-5 w-5" />
-                Daftar Produk
-              </span>
-              <Badge variant="outline">
-                {products.length} produk
-              </Badge>
+            <CardTitle className="text-lg font-semibold text-purple-700">Input Penjualan</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label htmlFor="customer-name">Nama Pelanggan</Label>
+              <Select value={customerName} onValueChange={handleCustomerChange}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Pilih pelanggan dari Data Master" />
+                </SelectTrigger>
+                <SelectContent>
+                  {masterCustomers.length > 0 ? (
+                    masterCustomers.map((customer) => (
+                      <SelectItem key={customer.id} value={customer.customer_name}>
+                        {customer.customer_name}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="none" disabled>
+                      Belum ada pelanggan di Data Master
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label htmlFor="product-type">Jenis Produk</Label>
+              <Select value={productType} onValueChange={handleProductChange}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Pilih jenis produk" />
+                </SelectTrigger>
+                <SelectContent>
+                  {products.length > 0 ? (
+                    products.map((product) => (
+                      <SelectItem key={product.id} value={product.product_name}>
+                        {product.product_name} - {formatCurrency(product.price_per_kg)}/Kg
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="none" disabled>
+                      Belum ada produk di Data Master
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div>
+              <Label htmlFor="quantity">Jumlah Ekor</Label>
+              <Input
+                id="quantity"
+                type="number"
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+                placeholder="Jumlah ekor (Otomatis dari Master)"
+                min="1"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="weight">Jumlah Berat Ekor (Kg)</Label>
+              <Input
+                id="weight"
+                type="number"
+                step="0.1"
+                value={weight}
+                onChange={(e) => setWeight(e.target.value)}
+                placeholder="Berat dalam Kg"
+                min="0.1"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="price-per-kg">Harga per Kg</Label>
+              <Input
+                id="price-per-kg"
+                type="number"
+                value={pricePerKg}
+                onChange={(e) => setPricePerKg(e.target.value)}
+                placeholder="Harga per Kg"
+                min="1"
+              />
+            </div>
+
+            {weight && pricePerKg && (
+              <div className="p-2 bg-purple-50 rounded">
+                <p className="text-sm text-purple-700">
+                  Total Harga: {formatCurrency(parseFloat(weight) * parseFloat(pricePerKg))}
+                </p>
+              </div>
+            )}
+
+            <Button 
+              onClick={addSale} 
+              className="w-full" 
+              disabled={loading}
+            >
+              {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
+              Tambah Penjualan
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Sale List (List Penjualan Harian) */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <DollarSign className="h-5 w-5" />
+              Penjualan Tanggal {new Date(selectedDate).toLocaleDateString('id-ID')}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {products.length > 0 ? (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Nama Produk</TableHead>
-                      <TableHead className="text-right">Harga per Kg</TableHead>
-                      <TableHead className="text-center">Aksi</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {products.map((product) => (
-                      <TableRow key={product.id}>
-                        <TableCell>
-                          {editingId === product.id ? (
-                            <Input
-                              value={editingName}
-                              onChange={(e) => setEditingName(e.target.value)}
-                              className="w-full"
-                            />
-                          ) : (
-                            <span className="font-medium">{product.product_name}</span>
-                          )}
-                        </TableCell>
-                        
-                        <TableCell className="text-right">
-                          {editingId === product.id ? (
-                            <Input
-                              type="number"
-                              value={editingPrice}
-                              onChange={(e) => setEditingPrice(e.target.value)}
-                              className="w-32 ml-auto"
-                              min="1"
-                            />
-                          ) : (
-                            <span className="font-medium text-green-600">
-                              {formatCurrency(product.price_per_kg)}
-                            </span>
-                          )}
-                        </TableCell>
-                        
-                        <TableCell className="text-center">
-                          <div className="flex items-center justify-center gap-2">
-                            {editingId === product.id ? (
-                              <>
-                                <Button
-                                  size="sm"
-                                  onClick={() => saveEdit(product.id)}
-                                  disabled={saving}
-                                  className="bg-green-600 hover:bg-green-700"
-                                >
-                                  {saving ? (
-                                    <Loader2 className="h-3 w-3 animate-spin" />
-                                  ) : (
-                                    <Save className="h-3 w-3" />
-                                  )}
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={cancelEdit}
-                                  disabled={saving}
-                                >
-                                  <X className="h-3 w-3" />
-                                </Button>
-                              </>
-                            ) : (
-                              <>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => startEdit(product)}
-                                  disabled={saving}
-                                >
-                                  <Edit className="h-3 w-3" />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="destructive"
-                                  onClick={() => deleteProduct(product.id, product.product_name)}
-                                  disabled={saving}
-                                >
-                                  <Trash2 className="h-3 w-3" />
-                                </Button>
-                              </>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+            {todaySales.length > 0 ? (
+              <div className="space-y-3">
+                {todaySales.map((sale) => (
+                  <div key={sale.id} className="p-4 bg-purple-50 rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="font-medium text-gray-900">{sale.customer_name}</h4>
+                      <Badge variant="outline">{formatCurrency(sale.total_price)}</Badge>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+                      <div>
+                        <p className="text-gray-600">Jenis Produk</p>
+                        <p className="font-medium">{sale.product_type || 'Ayam Utuh'}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-600">Jumlah Ekor</p>
+                        <p className="font-medium">{sale.quantity} ekor</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-600">Berat Total</p>
+                        <p className="font-medium">{sale.weight} Kg</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-600">Harga per Kg</p>
+                        <p className="font-medium">{formatCurrency(sale.price_per_kg)}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-600">Total Harga</p>
+                        <p className="font-medium text-purple-600">{formatCurrency(sale.total_price)}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <Separator />
+                <div className="text-center">
+                  <p className="text-sm font-medium text-gray-700">
+                    Total Penjualan: {formatCurrency(todaySales.reduce((sum, s) => sum + s.total_price, 0))} dari {todaySales.length} pelanggan
+                  </p>
+                </div>
               </div>
             ) : (
-              <div className="text-center py-8">
-                <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-500 text-lg">Belum ada produk</p>
-                <p className="text-gray-400 text-sm mt-1">
-                  Tambahkan produk pertama Anda menggunakan form di atas
-                </p>
-              </div>
+              <p className="text-gray-500 text-center py-4">Belum ada data penjualan untuk tanggal ini</p>
             )}
           </CardContent>
         </Card>
@@ -416,4 +368,4 @@ const DataMaster = () => {
   );
 };
 
-export default DataMaster;
+export default Penjualan;
