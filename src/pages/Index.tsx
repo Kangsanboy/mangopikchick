@@ -74,9 +74,14 @@ const Index = () => {
   // Calculate totals
   const totalPreorderQuantity = todayPreorders.reduce((sum, item) => sum + item.quantity, 0);
   const totalPurchaseQuantity = todayPurchases.reduce((sum, item) => sum + item.quantity, 0);
+  const totalSalesQuantity = todaySales.reduce((sum, item) => sum + item.quantity, 0);
   const totalPurchaseWeight = todayPurchases.reduce((sum, item) => sum + item.weight, 0);
   const totalPurchasePrice = todayPurchases.reduce((sum, item) => sum + item.total_price, 0);
   const totalSalesPrice = todaySales.reduce((sum, item) => sum + item.total_price, 0);
+
+  // Calculate stock difference (purchased - sold)
+  const stockDifference = totalPurchaseQuantity - totalSalesQuantity;
+  const isStockPositive = stockDifference >= 0;
 
   // Calculate profit/loss
   const profitLoss = totalSalesPrice - totalPurchasePrice;
@@ -109,7 +114,7 @@ const Index = () => {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
           <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium text-blue-700">Total Preorder</CardTitle>
@@ -138,8 +143,23 @@ const Index = () => {
               <Package className="h-4 w-4 text-purple-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-purple-900">{todaySales.length} Transaksi</div>
+              <div className="text-2xl font-bold text-purple-900">{totalSalesQuantity} Ekor</div>
               <p className="text-xs text-purple-600 mt-1">{formatCurrency(totalSalesPrice)}</p>
+            </CardContent>
+          </Card>
+
+          <Card className={`bg-gradient-to-br ${isStockPositive ? 'from-amber-50 to-amber-100 border-amber-200' : 'from-red-50 to-red-100 border-red-200'}`}>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className={`text-sm font-medium ${isStockPositive ? 'text-amber-700' : 'text-red-700'}`}>Selisih Stok</CardTitle>
+              <Package className={`h-4 w-4 ${isStockPositive ? 'text-amber-600' : 'text-red-600'}`} />
+            </CardHeader>
+            <CardContent>
+              <div className={`text-2xl font-bold ${isStockPositive ? 'text-amber-900' : 'text-red-900'}`}>
+                {Math.abs(stockDifference)} Ekor
+              </div>
+              <Badge variant={isStockPositive ? "default" : "destructive"} className="mt-1">
+                {isStockPositive ? "Sisa Stok" : "Kurang Stok"}
+              </Badge>
             </CardContent>
           </Card>
 
