@@ -7,16 +7,30 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"; // NEW
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { SaleData, ProductMaster, TABLE_NAMES } from "@/types/database";
-import { CalendarDays, Plus, Loader2, DollarSign } from "lucide-react";
+import { SaleData, TABLE_NAMES } from "@/types/database";
+import { 
+  CalendarDays, 
+  Plus, 
+  Loader2, 
+  DollarSign, 
+  Trash2, // Icon Hapus
+  Edit,   // Icon Edit
+  Save
+} from "lucide-react";
 
-// Definisikan type lokal untuk Customer
+// Tipe data untuk Master Customer & Product
 interface CustomerMaster {
   id: string;
   customer_name: string;
   default_quantity: number;
+}
+interface ProductMaster {
+  id: string;
+  product_name: string;
+  price_per_kg: number;
 }
 
 const Penjualan = () => {
@@ -24,167 +38,154 @@ const Penjualan = () => {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [loading, setLoading] = useState(false);
   
-  // Form states
+  // Form Input States
   const [customerName, setCustomerName] = useState("");
   const [productType, setProductType] = useState("");
   const [quantity, setQuantity] = useState("");
   const [weight, setWeight] = useState("");
   const [pricePerKg, setPricePerKg] = useState("");
   
-  // Data
+  // Data States
   const [sales, setSales] = useState<SaleData[]>([]);
   const [products, setProducts] = useState<ProductMaster[]>([]);
-  // Ganti availableCustomers (string[]) menjadi masterCustomers (object[])
   const [masterCustomers, setMasterCustomers] = useState<CustomerMaster[]>([]);
 
-  // Load data awal
+  // Edit States
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [editData, setEditData] = useState<SaleData | null>(null);
+  const [editLoading, setEditLoading] = useState(false);
+
+  // Load Data Awal
   useEffect(() => {
     loadMasterData();
   }, []);
 
-  // Load data penjualan saat tanggal berubah
   useEffect(() => {
     loadSalesForDate();
   }, [selectedDate]);
 
   const loadMasterData = async () => {
     try {
-      // 1. Load Products
       const { data: productsData } = await supabase
         .from(TABLE_NAMES.PRODUCT_MASTER)
-        .select('*')
-        .eq('is_active', true)
-        .order('product_name', { ascending: true });
+        .select('*').eq('is_active', true).order('product_name', { ascending: true });
       
-      // 2. Load Customer Master (SUMBER BARU)
       const { data: customersData } = await supabase
         .from('customer_master')
-        .select('*')
-        .eq('is_active', true)
-        .order('customer_name', { ascending: true });
+        .select('*').eq('is_active', true).order('customer_name', { ascending: true });
 
       setProducts(productsData || []);
       setMasterCustomers(customersData || []);
-      
     } catch (error) {
       console.error('Error loading master data:', error);
-      toast({
-        title: "Error",
-        description: "Gagal memuat data master",
-        variant: "destructive",
-      });
     }
   };
 
   const loadSalesForDate = async () => {
-    try {
-        const { data: salesData, error } = await supabase
-            .from(TABLE_NAMES.SALES)
-            .select('*')
-            .eq('date', selectedDate) // Filter langsung dari DB biar ringan
-            .order('created_at', { ascending: false });
+    const { data: salesData, error } = await supabase
+        .from(TABLE_NAMES.SALES)
+        .select('*')
+        .eq('date', selectedDate)
+        .order('created_at', { ascending: false });
 
-        if (error) throw error;
-        setSales(salesData || []);
-    } catch (error) {
-        console.error('Error loading sales:', error);
-    }
+    if (!error && salesData) setSales(salesData);
   };
 
-  // Handle product selection
+  // --- LOGIKA FORM INPUT UTAMA ---
   const handleProductChange = (productName: string) => {
     setProductType(productName);
     const selectedProduct = products.find(p => p.product_name === productName);
-    if (selectedProduct) {
-      setPricePerKg(selectedProduct.price_per_kg.toString());
-    }
+    if (selectedProduct) setPricePerKg(selectedProduct.price_per_kg.toString());
   };
 
-  // Handle Customer Selection (Auto-fill Quantity)
   const handleCustomerChange = (name: string) => {
     setCustomerName(name);
-    // Cari data customer yang dipilih untuk ambil default quantity
     const customer = masterCustomers.find(c => c.customer_name === name);
-    if (customer && customer.default_quantity) {
-      setQuantity(customer.default_quantity.toString());
-    }
+    if (customer && customer.default_quantity) setQuantity(customer.default_quantity.toString());
   };
 
-  // Add sale
   const addSale = async () => {
     if (!customerName || !productType || !quantity || !weight || !pricePerKg) {
-      toast({
-        title: "Error",
-        description: "Mohon lengkapi semua field penjualan",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: "Lengkapi semua field!", variant: "destructive" });
       return;
     }
-
     setLoading(true);
     try {
-      const quantityNum = parseInt(quantity);
-      const weightNum = parseFloat(weight);
-      const pricePerKgNum = parseFloat(pricePerKg);
-      const totalPrice = Math.round(weightNum * pricePerKgNum);
-
-      const { error } = await supabase
-        .from(TABLE_NAMES.SALES)
-        .insert({
-          customer_name: customerName,
-          product_type: productType,
-          quantity: quantityNum,
-          weight: weightNum,
-          price_per_kg: pricePerKgNum,
-          total_price: totalPrice,
-          date: selectedDate,
-        });
-
+      const totalPrice = Math.round(parseFloat(weight) * parseFloat(pricePerKg));
+      const { error } = await supabase.from(TABLE_NAMES.SALES).insert({
+        customer_name: customerName,
+        product_type: productType,
+        quantity: parseInt(quantity),
+        weight: parseFloat(weight),
+        price_per_kg: parseFloat(pricePerKg),
+        total_price: totalPrice,
+        date: selectedDate,
+        payment_status: 'Belum Lunas' // Default status
+      });
       if (error) throw error;
-
-      // Reset form (kecuali customer biar cepat input lagi kalau mau)
-      // Tapi biasanya reset semua. Kita reset semua field input.
-      setCustomerName("");
-      setProductType("");
-      setQuantity("");
-      setWeight("");
-      setPricePerKg("");
-
-      // Refresh Data Penjualan
+      
+      // Reset Form
+      setCustomerName(""); setProductType(""); setQuantity(""); setWeight(""); setPricePerKg("");
       await loadSalesForDate();
-
-      toast({
-        title: "Berhasil",
-        description: "Data penjualan berhasil ditambahkan",
-      });
+      toast({ title: "Berhasil", description: "Penjualan ditambahkan" });
     } catch (error) {
-      console.error('Error adding sale:', error);
-      toast({
-        title: "Error",
-        description: "Gagal menambahkan data penjualan",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
+      toast({ title: "Error", description: "Gagal menambah data", variant: "destructive" });
+    } finally { setLoading(false); }
+  };
+
+  // --- LOGIKA HAPUS (DELETE) ---
+  const handleDelete = async (id: string, name: string) => {
+    if (!confirm(`Yakin ingin menghapus data penjualan "${name}"?`)) return;
+    try {
+      const { error } = await supabase.from(TABLE_NAMES.SALES).delete().eq('id', id);
+      if (error) throw error;
+      toast({ title: "Dihapus", description: "Data berhasil dihapus" });
+      loadSalesForDate();
+    } catch (error) {
+      toast({ title: "Error", description: "Gagal menghapus data", variant: "destructive" });
     }
   };
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('id-ID', {
-      style: 'currency',
-      currency: 'IDR',
-      minimumFractionDigits: 0,
-    }).format(amount);
+  // --- LOGIKA EDIT ---
+  const openEditModal = (sale: SaleData) => {
+    setEditData({ ...sale }); // Copy data ke state edit
+    setIsEditOpen(true);
   };
+
+  const handleEditSave = async () => {
+    if (!editData) return;
+    setEditLoading(true);
+    try {
+      // Hitung ulang total harga based on edit
+      const newTotal = Math.round(editData.weight * editData.price_per_kg);
+      
+      const { error } = await supabase.from(TABLE_NAMES.SALES).update({
+        quantity: editData.quantity,
+        weight: editData.weight,
+        price_per_kg: editData.price_per_kg,
+        total_price: newTotal
+      }).eq('id', editData.id);
+
+      if (error) throw error;
+      
+      setIsEditOpen(false);
+      loadSalesForDate();
+      toast({ title: "Update Berhasil", description: "Data penjualan diperbarui" });
+    } catch (error) {
+      toast({ title: "Error", description: "Gagal update data", variant: "destructive" });
+    } finally { setEditLoading(false); }
+  };
+
+  // Utility Rupiah
+  const formatCurrency = (val: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(val);
 
   return (
     <Layout>
       <div className="space-y-6">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Penjualan</h1>
-            <p className="text-gray-600 mt-1">Kelola data penjualan produk</p>
+            <h1 className="text-3xl font-bold text-gray-900">Penjualan Harian</h1>
+            <p className="text-gray-600 mt-1">Input data penjualan hari ini</p>
           </div>
         </div>
 
@@ -192,188 +193,141 @@ const Penjualan = () => {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <CalendarDays className="h-5 w-5" />
-              Pilih Tanggal
+              <CalendarDays className="h-5 w-5" /> Pilih Tanggal
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-4">
-              <Label htmlFor="date">Tanggal:</Label>
-              <Input
-                id="date"
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                className="w-auto"
-              />
-              <p className="text-sm text-gray-600">
-                Data akan disimpan untuk tanggal: {new Date(selectedDate).toLocaleDateString('id-ID')}
-              </p>
+              <Label>Tanggal:</Label>
+              <Input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-auto" />
+              <p className="text-sm text-gray-600">Data tanggal: {new Date(selectedDate).toLocaleDateString('id-ID')}</p>
             </div>
           </CardContent>
         </Card>
 
-        {/* Sale Form */}
+        {/* Form Input */}
         <Card>
-          <CardHeader>
-            <CardTitle className="text-lg font-semibold text-purple-700">Input Penjualan</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="text-lg font-semibold text-purple-700">Input Penjualan Baru</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <Label htmlFor="customer-name">Nama Pelanggan</Label>
-              {/* Menggunakan data dari Master Customer */}
+              <Label>Nama Pelanggan</Label>
               <Select value={customerName} onValueChange={handleCustomerChange}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Pilih pelanggan dari Data Master" />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="Pilih Pelanggan" /></SelectTrigger>
                 <SelectContent>
-                  {masterCustomers.length > 0 ? (
-                    masterCustomers.map((customer) => (
-                      <SelectItem key={customer.id} value={customer.customer_name}>
-                        {customer.customer_name}
-                      </SelectItem>
-                    ))
-                  ) : (
-                    <SelectItem value="none" disabled>
-                      Belum ada pelanggan di Data Master
-                    </SelectItem>
-                  )}
+                  {masterCustomers.map((c) => (<SelectItem key={c.id} value={c.customer_name}>{c.customer_name}</SelectItem>))}
                 </SelectContent>
               </Select>
             </div>
-
             <div>
-              <Label htmlFor="product-type">Jenis Produk</Label>
+              <Label>Jenis Produk</Label>
               <Select value={productType} onValueChange={handleProductChange}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Pilih jenis produk" />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="Pilih Produk" /></SelectTrigger>
                 <SelectContent>
-                  {products.length > 0 ? (
-                    products.map((product) => (
-                      <SelectItem key={product.id} value={product.product_name}>
-                        {product.product_name} - {formatCurrency(product.price_per_kg)}/Kg
-                      </SelectItem>
-                    ))
-                  ) : (
-                    <SelectItem value="none" disabled>
-                      Belum ada produk di Data Master
-                    </SelectItem>
-                  )}
+                  {products.map((p) => (<SelectItem key={p.id} value={p.product_name}>{p.product_name} - {formatCurrency(p.price_per_kg)}/Kg</SelectItem>))}
                 </SelectContent>
               </Select>
             </div>
-            
-            <div>
-              <Label htmlFor="quantity">Jumlah Ekor</Label>
-              <Input
-                id="quantity"
-                type="number"
-                value={quantity}
-                onChange={(e) => setQuantity(e.target.value)}
-                placeholder="Jumlah ekor (Otomatis terisi jika ada default)"
-                min="1"
-              />
+            <div className="grid grid-cols-3 gap-4">
+              <div><Label>Jumlah Ekor</Label><Input type="number" value={quantity} onChange={(e) => setQuantity(e.target.value)} /></div>
+              <div><Label>Berat (Kg)</Label><Input type="number" step="0.1" value={weight} onChange={(e) => setWeight(e.target.value)} /></div>
+              <div><Label>Harga/Kg</Label><Input type="number" value={pricePerKg} onChange={(e) => setPricePerKg(e.target.value)} /></div>
             </div>
-
-            <div>
-              <Label htmlFor="weight">Jumlah Berat Ekor (Kg)</Label>
-              <Input
-                id="weight"
-                type="number"
-                step="0.1"
-                value={weight}
-                onChange={(e) => setWeight(e.target.value)}
-                placeholder="Berat dalam Kg"
-                min="0.1"
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="price-per-kg">Harga per Kg</Label>
-              <Input
-                id="price-per-kg"
-                type="number"
-                value={pricePerKg}
-                onChange={(e) => setPricePerKg(e.target.value)}
-                placeholder="Harga per Kg"
-                min="1"
-              />
-            </div>
-
             {weight && pricePerKg && (
-              <div className="p-2 bg-purple-50 rounded">
-                <p className="text-sm text-purple-700">
-                  Total Harga: {formatCurrency(parseFloat(weight) * parseFloat(pricePerKg))}
-                </p>
+              <div className="p-2 bg-purple-50 rounded text-center font-bold text-purple-800">
+                Total: {formatCurrency(parseFloat(weight) * parseFloat(pricePerKg))}
               </div>
             )}
-
-            <Button 
-              onClick={addSale} 
-              className="w-full" 
-              disabled={loading}
-            >
-              {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
-              Tambah Penjualan
+            <Button onClick={addSale} className="w-full" disabled={loading}>
+              {loading ? <Loader2 className="animate-spin" /> : <Plus className="mr-2 h-4 w-4" />} Tambah Penjualan
             </Button>
           </CardContent>
         </Card>
 
-        {/* Sale List */}
+        {/* List Penjualan Hari Ini */}
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <DollarSign className="h-5 w-5" />
-              Penjualan Tanggal {new Date(selectedDate).toLocaleDateString('id-ID')}
-            </CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="flex items-center gap-2"><DollarSign className="h-5 w-5" /> Riwayat {new Date(selectedDate).toLocaleDateString('id-ID')}</CardTitle></CardHeader>
           <CardContent>
             {sales.length > 0 ? (
               <div className="space-y-3">
                 {sales.map((sale) => (
-                  <div key={sale.id} className="p-4 bg-purple-50 rounded-lg">
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="font-medium text-gray-900">{sale.customer_name}</h4>
-                      <Badge variant="outline">{formatCurrency(sale.total_price)}</Badge>
+                  <div key={sale.id} className="p-4 bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-shadow">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h4 className="font-bold text-lg text-gray-900">{sale.customer_name}</h4>
+                        <p className="text-sm text-gray-500">{sale.product_type} • {sale.quantity} Ekor</p>
+                      </div>
+                      <Badge variant="outline" className="text-base px-3 py-1 font-bold border-purple-200 text-purple-700 bg-purple-50">
+                        {formatCurrency(sale.total_price)}
+                      </Badge>
                     </div>
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
-                      <div>
-                        <p className="text-gray-600">Jenis Produk</p>
-                        <p className="font-medium">{sale.product_type || 'Ayam Utuh'}</p>
+                    <Separator className="my-2" />
+                    <div className="flex items-center justify-between mt-2">
+                      <div className="text-sm text-gray-600">
+                        <span className="font-medium text-gray-900">{sale.weight} Kg</span> x {formatCurrency(sale.price_per_kg)}
                       </div>
-                      <div>
-                        <p className="text-gray-600">Jumlah Ekor</p>
-                        <p className="font-medium">{sale.quantity} ekor</p>
-                      </div>
-                      <div>
-                        <p className="text-gray-600">Berat Total</p>
-                        <p className="font-medium">{sale.weight} Kg</p>
-                      </div>
-                      <div>
-                        <p className="text-gray-600">Harga per Kg</p>
-                        <p className="font-medium">{formatCurrency(sale.price_per_kg)}</p>
-                      </div>
-                      <div>
-                        <p className="text-gray-600">Total Harga</p>
-                        <p className="font-medium text-purple-600">{formatCurrency(sale.total_price)}</p>
+                      
+                      {/* TOMBOL EDIT & HAPUS */}
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline" className="h-8 w-8 p-0" onClick={() => openEditModal(sale)}>
+                          <Edit className="h-4 w-4 text-blue-600" />
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-8 w-8 p-0 hover:bg-red-50 hover:border-red-200" onClick={() => handleDelete(sale.id, sale.customer_name)}>
+                          <Trash2 className="h-4 w-4 text-red-600" />
+                        </Button>
                       </div>
                     </div>
                   </div>
                 ))}
-                <Separator />
-                <div className="text-center">
-                  <p className="text-sm font-medium text-gray-700">
-                    Total Penjualan: {formatCurrency(sales.reduce((sum, s) => sum + s.total_price, 0))} dari {sales.length} pelanggan
+                
+                <div className="mt-4 p-4 bg-gray-50 rounded-lg text-center">
+                  <p className="font-medium text-gray-700">
+                    Total Hari Ini: {formatCurrency(sales.reduce((sum, s) => sum + s.total_price, 0))} 
+                    <span className="text-gray-400 text-sm ml-1">({sales.length} Transaksi)</span>
                   </p>
                 </div>
               </div>
             ) : (
-              <p className="text-gray-500 text-center py-4">Belum ada data penjualan untuk tanggal ini</p>
+              <p className="text-gray-500 text-center py-8">Belum ada penjualan hari ini.</p>
             )}
           </CardContent>
         </Card>
       </div>
+
+      {/* MODAL EDIT DATA */}
+      <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Edit Data Penjualan</DialogTitle></DialogHeader>
+          {editData && (
+            <div className="space-y-4 py-2">
+              <div className="p-2 bg-blue-50 rounded text-sm text-blue-800 font-medium">
+                Pelanggan: {editData.customer_name} <br/> Produk: {editData.product_type}
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Jumlah Ekor</Label>
+                  <Input type="number" value={editData.quantity} onChange={(e) => setEditData({...editData, quantity: parseInt(e.target.value) || 0})} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Berat (Kg)</Label>
+                  <Input type="number" step="0.1" value={editData.weight} onChange={(e) => setEditData({...editData, weight: parseFloat(e.target.value) || 0})} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Harga per Kg</Label>
+                <Input type="number" value={editData.price_per_kg} onChange={(e) => setEditData({...editData, price_per_kg: parseFloat(e.target.value) || 0})} />
+              </div>
+              <div className="text-right font-bold text-gray-700">
+                Total Baru: {formatCurrency(Math.round((editData.weight || 0) * (editData.price_per_kg || 0)))}
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditOpen(false)}>Batal</Button>
+            <Button onClick={handleEditSave} disabled={editLoading}>{editLoading ? <Loader2 className="animate-spin" /> : <Save className="h-4 w-4 mr-2"/>} Simpan Perubahan</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </Layout>
   );
 };
