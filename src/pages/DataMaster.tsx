@@ -10,258 +10,187 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { TABLE_NAMES } from "@/types/database";
-import { Plus, Edit, Trash2, Package, Users, Loader2, Save, X } from "lucide-react";
+import { Plus, Edit, Trash2, Package, Users, Loader2, Save, X, WalletCards } from "lucide-react";
 
-// Update Interface Lokal
-interface CustomerMaster {
-  id: string;
-  customer_name: string;
-  default_quantity: number;
-  is_active: boolean;
-}
+// Interfaces
+interface CustomerMaster { id: string; customer_name: string; default_quantity: number; }
+interface ProductMaster { id: string; product_name: string; price_per_kg: number; category: string; }
+interface ExpenseCategory { id: string; name: string; }
 
 const DataMaster = () => {
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<"products" | "customers">("products");
-  
-  // --- STATE PRODUK ---
-  const [products, setProducts] = useState<any[]>([]);
-  const [productName, setProductName] = useState("");
-  const [pricePerKg, setPricePerKg] = useState("");
-  const [category, setCategory] = useState("utuh"); // Default Utuh
-
-  // --- STATE PELANGGAN ---
-  const [customers, setCustomers] = useState<CustomerMaster[]>([]);
-  const [custName, setCustName] = useState("");
-  const [custQty, setCustQty] = useState("");
-
-  // --- STATE UMUM ---
+  const [activeTab, setActiveTab] = useState<"products" | "customers" | "expenses">("products");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  
-  // State Edit
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingName, setEditingName] = useState("");
-  const [editingValue, setEditingValue] = useState("");
-  const [editingCategory, setEditingCategory] = useState("");
+
+  // States
+  const [products, setProducts] = useState<ProductMaster[]>([]);
+  const [customers, setCustomers] = useState<CustomerMaster[]>([]);
+  const [expenseCategories, setExpenseCategories] = useState<ExpenseCategory[]>([]);
+
+  // Inputs
+  const [prodName, setProdName] = useState(""); const [prodPrice, setProdPrice] = useState(""); const [prodCat, setProdCat] = useState("utuh");
+  const [custName, setCustName] = useState(""); const [custQty, setCustQty] = useState("");
+  const [expName, setExpName] = useState("");
+
+  // Edit Inputs
+  const [editName, setEditName] = useState(""); const [editValue, setEditValue] = useState(""); const [editCat, setEditCat] = useState("");
 
   useEffect(() => {
     if (activeTab === "products") loadProducts();
-    else loadCustomers();
+    else if (activeTab === "customers") loadCustomers();
+    else loadExpenses();
   }, [activeTab]);
 
-  // ==================== FUNGSI PRODUK ====================
+  // --- LOAD DATA ---
   const loadProducts = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from(TABLE_NAMES.PRODUCT_MASTER)
-      .select('*')
-      .eq('is_active', true)
-      .order('product_name', { ascending: true });
-    if (!error) setProducts(data || []);
-    setLoading(false);
+    const { data } = await supabase.from(TABLE_NAMES.PRODUCT_MASTER).select('*').eq('is_active', true).order('product_name');
+    setProducts(data || []); setLoading(false);
   };
-
-  const addProduct = async () => {
-    if (!productName.trim() || !pricePerKg) return;
-    setSaving(true);
-    try {
-      const { error } = await supabase.from(TABLE_NAMES.PRODUCT_MASTER).insert({
-        product_name: productName.trim(),
-        price_per_kg: parseInt(pricePerKg),
-        category: category // Simpan Kategori
-      });
-      if (error) throw error;
-      setProductName(""); setPricePerKg(""); setCategory("utuh");
-      await loadProducts();
-      toast({ title: "Berhasil", description: "Produk ditambahkan" });
-    } catch (error) {
-      toast({ title: "Error", description: "Gagal menambah produk", variant: "destructive" });
-    } finally { setSaving(false); }
-  };
-
-  // ==================== FUNGSI PELANGGAN ====================
   const loadCustomers = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('customer_master')
-      .select('*')
-      .eq('is_active', true)
-      .order('customer_name', { ascending: true });
-    if (!error) setCustomers(data || []);
-    setLoading(false);
+    const { data } = await supabase.from('customer_master').select('*').eq('is_active', true).order('customer_name');
+    setCustomers(data || []); setLoading(false);
+  };
+  const loadExpenses = async () => {
+    setLoading(true);
+    const { data } = await supabase.from('expense_categories').select('*').eq('is_active', true).order('name');
+    setExpenseCategories(data || []); setLoading(false);
   };
 
-  const addCustomer = async () => {
-    if (!custName.trim()) return;
+  // --- ADD FUNCTIONS ---
+  const addProduct = async () => {
+    if (!prodName || !prodPrice) return;
     setSaving(true);
-    try {
-      const { error } = await supabase.from('customer_master').insert({
-        customer_name: custName.trim(),
-        default_quantity: custQty ? parseInt(custQty) : 0,
-      });
-      if (error) throw error;
-      setCustName(""); setCustQty("");
-      await loadCustomers();
-      toast({ title: "Berhasil", description: "Pelanggan ditambahkan" });
-    } catch (error) {
-      toast({ title: "Error", description: "Gagal menambah pelanggan", variant: "destructive" });
-    } finally { setSaving(false); }
+    await supabase.from(TABLE_NAMES.PRODUCT_MASTER).insert({ product_name: prodName, price_per_kg: parseInt(prodPrice), category: prodCat });
+    setProdName(""); setProdPrice(""); loadProducts(); setSaving(false);
+    toast({ title: "Produk Ditambahkan" });
+  };
+  const addCustomer = async () => {
+    if (!custName) return;
+    setSaving(true);
+    await supabase.from('customer_master').insert({ customer_name: custName, default_quantity: parseInt(custQty) || 0 });
+    setCustName(""); setCustQty(""); loadCustomers(); setSaving(false);
+    toast({ title: "Pelanggan Ditambahkan" });
+  };
+  const addExpenseCat = async () => {
+    if (!expName) return;
+    setSaving(true);
+    await supabase.from('expense_categories').insert({ name: expName });
+    setExpName(""); loadExpenses(); setSaving(false);
+    toast({ title: "Kategori Pengeluaran Ditambahkan" });
   };
 
-  // ==================== FUNGSI DELETE & EDIT ====================
-  const deleteItem = async (id: string, table: string, isProduct: boolean) => {
+  // --- EDIT & DELETE ---
+  const deleteItem = async (id: string, table: string) => {
     if (!confirm("Hapus data ini?")) return;
-    const { error } = await supabase.from(table).update({ is_active: false }).eq('id', id);
-    if (!error) {
-      isProduct ? loadProducts() : loadCustomers();
-      toast({ title: "Dihapus", description: "Data berhasil dihapus" });
-    }
+    await supabase.from(table).update({ is_active: false }).eq('id', id);
+    if (activeTab === 'products') loadProducts();
+    else if (activeTab === 'customers') loadCustomers();
+    else loadExpenses();
+    toast({ title: "Data Dihapus" });
   };
 
-  const saveEdit = async (isProduct: boolean) => {
+  const saveEdit = async () => {
     if (!editingId) return;
     setSaving(true);
-    try {
-      const updateData = isProduct 
-        ? { product_name: editingName, price_per_kg: parseInt(editingValue), category: editingCategory }
-        : { customer_name: editingName, default_quantity: parseInt(editingValue) };
-      
-      const table = isProduct ? TABLE_NAMES.PRODUCT_MASTER : 'customer_master';
-      const { error } = await supabase.from(table).update(updateData).eq('id', editingId);
-
-      if (error) throw error;
-      setEditingId(null);
-      isProduct ? await loadProducts() : await loadCustomers();
-      toast({ title: "Berhasil", description: "Data diperbarui" });
-    } catch (error) {
-      toast({ title: "Error", description: "Gagal update", variant: "destructive" });
-    } finally { setSaving(false); }
+    if (activeTab === 'products') {
+      await supabase.from(TABLE_NAMES.PRODUCT_MASTER).update({ product_name: editName, price_per_kg: parseInt(editValue), category: editCat }).eq('id', editingId);
+      loadProducts();
+    } else if (activeTab === 'customers') {
+      await supabase.from('customer_master').update({ customer_name: editName, default_quantity: parseInt(editValue) }).eq('id', editingId);
+      loadCustomers();
+    } else {
+      await supabase.from('expense_categories').update({ name: editName }).eq('id', editingId);
+      loadExpenses();
+    }
+    setEditingId(null); setSaving(false);
+    toast({ title: "Data Diperbarui" });
   };
 
-  const formatCurrency = (amount: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount);
+  const formatRp = (n: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n);
 
   return (
     <Layout>
       <div className="space-y-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Data Master</h1>
-            <p className="text-gray-600 mt-1">{activeTab === "products" ? "Kelola Produk & Kategori" : "Kelola Pelanggan"}</p>
-          </div>
+        <div className="flex flex-col md:flex-row justify-between gap-4">
+          <div><h1 className="text-3xl font-bold">Data Master</h1><p className="text-gray-500">Kelola Produk, Pelanggan & Pengeluaran</p></div>
           <div className="flex bg-gray-100 p-1 rounded-lg">
-            <button onClick={() => setActiveTab("products")} className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex gap-2 ${activeTab === "products" ? "bg-white text-green-700 shadow" : "text-gray-500"}`}><Package className="h-4 w-4" /> Produk</button>
-            <button onClick={() => setActiveTab("customers")} className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex gap-2 ${activeTab === "customers" ? "bg-white text-blue-700 shadow" : "text-gray-500"}`}><Users className="h-4 w-4" /> Pelanggan</button>
+            <button onClick={() => setActiveTab("products")} className={`px-4 py-2 rounded text-sm font-medium ${activeTab === "products" ? "bg-white text-green-700 shadow" : "text-gray-500"}`}>Produk</button>
+            <button onClick={() => setActiveTab("customers")} className={`px-4 py-2 rounded text-sm font-medium ${activeTab === "customers" ? "bg-white text-blue-700 shadow" : "text-gray-500"}`}>Pelanggan</button>
+            <button onClick={() => setActiveTab("expenses")} className={`px-4 py-2 rounded text-sm font-medium ${activeTab === "expenses" ? "bg-white text-orange-700 shadow" : "text-gray-500"}`}>Pengeluaran</button>
           </div>
         </div>
 
         {activeTab === "products" && (
-          <>
-            <Card className="border-t-4 border-t-green-500">
-              <CardHeader><CardTitle className="text-green-700 flex gap-2"><Plus className="h-5 w-5"/> Tambah Produk</CardTitle></CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <div className="md:col-span-2">
-                    <Label>Nama Produk</Label>
-                    <Input value={productName} onChange={(e) => setProductName(e.target.value)} placeholder="Contoh: Ayam Utuh, Ceker" />
-                  </div>
-                  <div>
-                    <Label>Kategori</Label>
-                    <Select value={category} onValueChange={setCategory}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="utuh">Ayam Utuh</SelectItem>
-                        <SelectItem value="jeroan">Jeroan / Parts</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label>Harga per Kg</Label>
-                    <Input type="number" value={pricePerKg} onChange={(e) => setPricePerKg(e.target.value)} placeholder="0" />
-                  </div>
-                  <div className="md:col-span-4">
-                    <Button onClick={addProduct} className="w-full bg-green-600 hover:bg-green-700" disabled={saving}>{saving ? <Loader2 className="animate-spin"/> : "Simpan Produk"}</Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="p-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Nama Produk</TableHead>
-                      <TableHead>Kategori</TableHead>
-                      <TableHead className="text-right">Harga/Kg</TableHead>
-                      <TableHead className="text-center">Aksi</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {products.map((p) => (
-                      <TableRow key={p.id}>
-                        <TableCell>{editingId === p.id ? <Input value={editingName} onChange={e => setEditingName(e.target.value)} /> : p.product_name}</TableCell>
-                        <TableCell>
-                          {editingId === p.id ? (
-                             <Select value={editingCategory} onValueChange={setEditingCategory}>
-                               <SelectTrigger><SelectValue /></SelectTrigger>
-                               <SelectContent>
-                                 <SelectItem value="utuh">Ayam Utuh</SelectItem>
-                                 <SelectItem value="jeroan">Jeroan / Parts</SelectItem>
-                               </SelectContent>
-                             </Select>
-                          ) : (
-                            <Badge variant={p.category === 'utuh' ? 'default' : 'secondary'}>{p.category === 'utuh' ? 'Ayam Utuh' : 'Jeroan'}</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">{editingId === p.id ? <Input type="number" value={editingValue} onChange={e => setEditingValue(e.target.value)} /> : formatCurrency(p.price_per_kg)}</TableCell>
-                        <TableCell className="text-center">
-                          {editingId === p.id ? (
-                            <div className="flex justify-center gap-2"><Button size="sm" onClick={() => saveEdit(true)}><Save className="h-3 w-3"/></Button><Button size="sm" variant="outline" onClick={() => setEditingId(null)}><X className="h-3 w-3"/></Button></div>
-                          ) : (
-                            <div className="flex justify-center gap-2"><Button size="sm" variant="ghost" onClick={() => { setEditingId(p.id); setEditingName(p.product_name); setEditingValue(p.price_per_kg); setEditingCategory(p.category || 'utuh'); }}><Edit className="h-4 w-4"/></Button><Button size="sm" variant="ghost" className="text-red-500" onClick={() => deleteItem(p.id, TABLE_NAMES.PRODUCT_MASTER, true)}><Trash2 className="h-4 w-4"/></Button></div>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </>
+          <Card className="border-t-4 border-t-green-500">
+            <CardHeader><CardTitle className="flex gap-2"><Plus className="h-5 w-5"/> Tambah Produk</CardTitle></CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                <div className="md:col-span-2"><Input placeholder="Nama Produk" value={prodName} onChange={e => setProdName(e.target.value)} /></div>
+                <Select value={prodCat} onValueChange={setProdCat}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent><SelectItem value="utuh">Ayam Utuh</SelectItem><SelectItem value="jeroan">Jeroan</SelectItem></SelectContent></Select>
+                <Input type="number" placeholder="Harga/Kg" value={prodPrice} onChange={e => setProdPrice(e.target.value)} />
+                <Button onClick={addProduct} disabled={saving} className="md:col-span-4 bg-green-600">Simpan</Button>
+              </div>
+              <Table>
+                <TableHeader><TableRow><TableHead>Produk</TableHead><TableHead>Kategori</TableHead><TableHead className="text-right">Harga</TableHead><TableHead className="text-center">Aksi</TableHead></TableRow></TableHeader>
+                <TableBody>{products.map(p => (
+                  <TableRow key={p.id}>
+                    <TableCell>{editingId === p.id ? <Input value={editName} onChange={e => setEditName(e.target.value)}/> : p.product_name}</TableCell>
+                    <TableCell>{editingId === p.id ? <Select value={editCat} onValueChange={setEditCat}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent><SelectItem value="utuh">Ayam Utuh</SelectItem><SelectItem value="jeroan">Jeroan</SelectItem></SelectContent></Select> : <Badge variant={p.category==='utuh'?'default':'secondary'}>{p.category}</Badge>}</TableCell>
+                    <TableCell className="text-right">{editingId === p.id ? <Input value={editValue} onChange={e => setEditValue(e.target.value)}/> : formatRp(p.price_per_kg)}</TableCell>
+                    <TableCell className="text-center">{editingId === p.id ? <Button size="sm" onClick={saveEdit}><Save className="h-4 w-4"/></Button> : <div className="flex justify-center gap-2"><Button size="sm" variant="ghost" onClick={() => {setEditingId(p.id); setEditName(p.product_name); setEditValue(p.price_per_kg.toString()); setEditCat(p.category)}}><Edit className="h-4 w-4"/></Button><Button size="sm" variant="ghost" className="text-red-500" onClick={() => deleteItem(p.id, TABLE_NAMES.PRODUCT_MASTER)}><Trash2 className="h-4 w-4"/></Button></div>}</TableCell>
+                  </TableRow>
+                ))}</TableBody>
+              </Table>
+            </CardContent>
+          </Card>
         )}
 
-        {/* --- TAB CUSTOMERS --- */}
         {activeTab === "customers" && (
-           <Card className="border-t-4 border-t-blue-500">
-             <CardHeader><CardTitle className="text-blue-700 flex gap-2"><Plus className="h-5 w-5"/> Tambah Pelanggan</CardTitle></CardHeader>
-             <CardContent>
-               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                 <div><Label>Nama</Label><Input value={custName} onChange={e => setCustName(e.target.value)} /></div>
-                 <div><Label>Default Ekor</Label><Input type="number" value={custQty} onChange={e => setCustQty(e.target.value)} /></div>
-                 <div className="flex items-end"><Button onClick={addCustomer} className="w-full bg-blue-600">Simpan</Button></div>
-               </div>
-             </CardContent>
-             <CardContent>
-                <Table>
-                  <TableHeader><TableRow><TableHead>Nama</TableHead><TableHead>Default</TableHead><TableHead className="text-center">Aksi</TableHead></TableRow></TableHeader>
-                  <TableBody>
-                    {customers.map(c => (
-                      <TableRow key={c.id}>
-                        <TableCell>{editingId === c.id ? <Input value={editingName} onChange={e => setEditingName(e.target.value)}/> : c.customer_name}</TableCell>
-                        <TableCell>{editingId === c.id ? <Input value={editingValue} onChange={e => setEditingValue(e.target.value)}/> : c.default_quantity}</TableCell>
-                        <TableCell className="text-center">
-                          {editingId === c.id ? 
-                            <Button size="sm" onClick={() => saveEdit(false)}><Save className="h-3 w-3"/></Button> : 
-                            <div className="flex justify-center gap-2"><Button size="sm" variant="ghost" onClick={() => {setEditingId(c.id); setEditingName(c.customer_name); setEditingValue(c.default_quantity.toString())}}><Edit className="h-4 w-4"/></Button><Button size="sm" variant="ghost" className="text-red-500" onClick={() => deleteItem(c.id, 'customer_master', false)}><Trash2 className="h-4 w-4"/></Button></div>
-                          }
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-             </CardContent>
-           </Card>
+          <Card className="border-t-4 border-t-blue-500">
+            <CardHeader><CardTitle className="flex gap-2"><Plus className="h-5 w-5"/> Tambah Pelanggan</CardTitle></CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                <Input placeholder="Nama Pelanggan" value={custName} onChange={e => setCustName(e.target.value)} />
+                <Input type="number" placeholder="Default Ekor" value={custQty} onChange={e => setCustQty(e.target.value)} />
+                <Button onClick={addCustomer} disabled={saving} className="bg-blue-600">Simpan</Button>
+              </div>
+              <Table>
+                <TableHeader><TableRow><TableHead>Nama</TableHead><TableHead>Default</TableHead><TableHead className="text-center">Aksi</TableHead></TableRow></TableHeader>
+                <TableBody>{customers.map(c => (
+                  <TableRow key={c.id}>
+                    <TableCell>{editingId === c.id ? <Input value={editName} onChange={e => setEditName(e.target.value)}/> : c.customer_name}</TableCell>
+                    <TableCell>{editingId === c.id ? <Input value={editValue} onChange={e => setEditValue(e.target.value)}/> : c.default_quantity}</TableCell>
+                    <TableCell className="text-center">{editingId === c.id ? <Button size="sm" onClick={saveEdit}><Save className="h-4 w-4"/></Button> : <div className="flex justify-center gap-2"><Button size="sm" variant="ghost" onClick={() => {setEditingId(c.id); setEditName(c.customer_name); setEditValue(c.default_quantity.toString())}}><Edit className="h-4 w-4"/></Button><Button size="sm" variant="ghost" className="text-red-500" onClick={() => deleteItem(c.id, 'customer_master')}><Trash2 className="h-4 w-4"/></Button></div>}</TableCell>
+                  </TableRow>
+                ))}</TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )}
+
+        {activeTab === "expenses" && (
+          <Card className="border-t-4 border-t-orange-500">
+            <CardHeader><CardTitle className="flex gap-2"><WalletCards className="h-5 w-5"/> Kategori Pengeluaran</CardTitle></CardHeader>
+            <CardContent>
+              <div className="flex gap-4 mb-4">
+                <Input placeholder="Contoh: Gaji Karyawan, Listrik, Rokok" value={expName} onChange={e => setExpName(e.target.value)} />
+                <Button onClick={addExpenseCat} disabled={saving} className="bg-orange-600">Simpan</Button>
+              </div>
+              <Table>
+                <TableHeader><TableRow><TableHead>Nama Kategori</TableHead><TableHead className="text-center">Aksi</TableHead></TableRow></TableHeader>
+                <TableBody>{expenseCategories.map(e => (
+                  <TableRow key={e.id}>
+                    <TableCell>{editingId === e.id ? <Input value={editName} onChange={e => setEditName(e.target.value)}/> : e.name}</TableCell>
+                    <TableCell className="text-center">{editingId === e.id ? <Button size="sm" onClick={saveEdit}><Save className="h-4 w-4"/></Button> : <div className="flex justify-center gap-2"><Button size="sm" variant="ghost" onClick={() => {setEditingId(e.id); setEditName(e.name)}}><Edit className="h-4 w-4"/></Button><Button size="sm" variant="ghost" className="text-red-500" onClick={() => deleteItem(e.id, 'expense_categories')}><Trash2 className="h-4 w-4"/></Button></div>}</TableCell>
+                  </TableRow>
+                ))}</TableBody>
+              </Table>
+            </CardContent>
+          </Card>
         )}
       </div>
     </Layout>
