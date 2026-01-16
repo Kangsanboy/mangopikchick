@@ -5,10 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Separator } from "@/components/ui/separator"; // Jangan lupa import ini
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Plus, Loader2, Trash2, Wallet } from "lucide-react";
+import { Plus, Loader2, Trash2, Wallet, CalendarDays } from "lucide-react";
 
 interface ExpenseData {
   id: string;
@@ -86,18 +86,24 @@ const Operasional = () => {
     <Layout>
       <div className="space-y-6">
         <div className="flex justify-between items-center">
-          <h1 className="text-3xl font-bold text-gray-900">Operasional</h1>
-          <div className="bg-red-100 px-4 py-2 rounded-lg border border-red-200">
-            <p className="text-sm text-red-600">Total Pengeluaran Hari Ini</p>
-            <p className="text-xl font-bold text-red-800">{formatRp(totalExpense)}</p>
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Operasional</h1>
+            <p className="text-gray-600 mt-1">Catat pengeluaran harian</p>
           </div>
         </div>
 
+        {/* CARD INPUT */}
         <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4 mb-6">
-              <Label>Tanggal:</Label>
-              <Input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="w-auto" />
+          <CardHeader>
+            <CardTitle className="text-orange-700 flex items-center gap-2">
+              <Plus className="h-5 w-5" /> Input Pengeluaran Baru
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center gap-4 p-3 bg-orange-50 rounded-lg border border-orange-100">
+              <CalendarDays className="h-5 w-5 text-orange-600" />
+              <Label>Tanggal Transaksi:</Label>
+              <Input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="w-auto bg-white" />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
@@ -119,30 +125,67 @@ const Operasional = () => {
                 <Input type="number" placeholder="0" value={amount} onChange={e => setAmount(e.target.value)} />
               </div>
             </div>
-            <Button onClick={addExpense} disabled={loading} className="w-full mt-4 bg-red-600 hover:bg-red-700">
+            <Button onClick={addExpense} disabled={loading} className="w-full bg-orange-600 hover:bg-orange-700">
               {loading ? <Loader2 className="animate-spin mr-2"/> : <Plus className="mr-2 h-4 w-4"/>} Tambah Pengeluaran
             </Button>
           </CardContent>
         </Card>
 
+        {/* CARD RIWAYAT & SUMMARY (TAMPILAN BARU) */}
         <Card>
-          <CardHeader><CardTitle className="flex gap-2"><Wallet className="h-5 w-5"/> Riwayat {new Date(selectedDate).toLocaleDateString('id-ID')}</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-gray-800">
+              <Wallet className="h-5 w-5 text-orange-600" /> 
+              Riwayat Pengeluaran {new Date(selectedDate).toLocaleDateString('id-ID')}
+            </CardTitle>
+          </CardHeader>
           <CardContent>
             {expenses.length > 0 ? (
-              <Table>
-                <TableHeader><TableRow><TableHead>Kategori</TableHead><TableHead>Keterangan</TableHead><TableHead className="text-right">Jumlah</TableHead><TableHead className="text-center">Aksi</TableHead></TableRow></TableHeader>
-                <TableBody>{expenses.map(e => (
-                  <TableRow key={e.id}>
-                    <TableCell className="font-medium">{e.category_name}</TableCell>
-                    <TableCell className="text-gray-500">{e.note || "-"}</TableCell>
-                    <TableCell className="text-right font-bold text-red-600">{formatRp(e.amount)}</TableCell>
-                    <TableCell className="text-center">
-                      <Button size="icon" variant="ghost" className="text-red-500" onClick={() => deleteExpense(e.id)}><Trash2 className="h-4 w-4"/></Button>
-                    </TableCell>
-                  </TableRow>
-                ))}</TableBody>
-              </Table>
-            ) : <p className="text-center py-8 text-gray-400">Belum ada pengeluaran.</p>}
+              <div className="space-y-4">
+                {/* List Item */}
+                <div className="space-y-2">
+                  {expenses.map((e) => (
+                    <div key={e.id} className="flex items-center justify-between p-3 bg-white border rounded-lg hover:shadow-sm transition-all">
+                      <div>
+                        <p className="font-bold text-gray-800">{e.category_name}</p>
+                        <p className="text-sm text-gray-500">{e.note || "-"}</p>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <span className="font-bold text-orange-700">{formatRp(e.amount)}</span>
+                        <Button 
+                          size="icon" 
+                          variant="outline" 
+                          className="h-8 w-8 text-red-500 hover:bg-red-50 border-red-200" 
+                          onClick={() => deleteExpense(e.id)}
+                        >
+                          <Trash2 className="h-4 w-4"/>
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <Separator className="my-4" />
+
+                {/* SUMMARY BOX (Bagian Bawah yang "Ganteng") */}
+                <div className="p-4 bg-orange-50 border border-orange-100 rounded-lg">
+                  <div className="flex justify-between items-center text-orange-900">
+                    <div>
+                      <p className="text-sm text-orange-600">Total Transaksi</p>
+                      <p className="font-bold text-xl">{expenses.length} item</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm text-orange-600">Total Pengeluaran Hari Ini</p>
+                      <p className="font-bold text-2xl">{formatRp(totalExpense)}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="text-center py-10 text-gray-400 bg-gray-50 rounded-lg border border-dashed">
+                Belum ada data pengeluaran untuk tanggal ini.
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>
