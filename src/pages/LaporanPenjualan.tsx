@@ -122,24 +122,53 @@ const LaporanPenjualan = () => {
     setFilteredTransactions(filtered);
   }, [groupedTransactions, startDate, endDate, customerFilter]);
 
-  // UPDATE PAYMENT (BULK UPDATE)
+  // UPDATE PAYMENT (PERBAIKAN LOGIKA 1 RUPIAH)
   const handleUpdatePayment = async () => {
     if (!selectedTx) return;
     setUpdateLoading(true);
 
     try {
+      // Hapus karakter non-angka
       const bayarTotal = parseInt(inputPayment.replace(/\D/g, '')) || 0;
       const totalTagihan = selectedTx.total_price;
       
       let status = "Belum Lunas";
       if (bayarTotal >= totalTagihan) status = "Lunas";
 
-      // Kita harus update SEMUA item dalam transaksi ini
-      // Cara cerdas: Distribusikan pembayaran ke item pertama atau rata (disini kita simpan di semua item statusnya, tapi amount_paid kita simpan proporsional atau simply di item pertama. 
-      // Agar simpel & tidak error: Kita update status semua item, tapi amount_paid kita catat totalnya dibagi rata atau taruh di item pertama.
-      // STRATEGI AMAN: Update status semua item. Amount_paid kita bagi rata secara kasar agar data tidak null.
+      // --- LOGIKA BARU: Simpan Total Bayar di Item Pertama Saja ---
+      // Cara ini paling aman & akurat. Tidak perlu dibagi rata yang bikin desimal.
+      // Item pertama menampung total bayar, item sisanya 0.
+      // Saat digrouping nanti, totalnya akan tetap benar (Total = Item1 + 0 + 0).
 
-      const idsToUpdate = selectedTx.items.map(i => i.id);
+      const items = selectedTx.items;
+      
+      if (items.length > 0) {
+        // 1. Update item pertama dengan TOTAL pembayaran
+        await supabase.from(TABLE_NAMES.SALES).update({
+          payment_status: status,
+          amount_paid: bayarTotal 
+        }).eq('id', items[0].id);
+
+        // 2. Update item sisanya (jika ada) jadi 0 biar tidak double count
+        if (items.length > 1) {
+          const otherIds = items.slice(1).map(i => i.id);
+          await supabase.from(TABLE_NAMES.SALES).update({
+            payment_status: status,
+            amount_paid: 0 
+          }).in('id', otherIds);
+        }
+      }
+
+      toast({ title: "Pembayaran Disimpan", description: `Status: ${status} - Rp ${formatCurrency(bayarTotal)}` });
+      setIsDialogOpen(false);
+      loadSales(); 
+    } catch (error) {
+      console.error(error);
+      toast({ title: "Error", description: "Gagal update pembayaran", variant: "destructive" });
+    } finally {
+      setUpdateLoading(false);
+    }
+  };
       
       // Update Status
       const { error } = await supabase
