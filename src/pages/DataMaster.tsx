@@ -9,10 +9,10 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { ProductMaster, TABLE_NAMES } from "@/types/database";
+import { TABLE_NAMES } from "@/types/database";
 import { Plus, Edit, Trash2, Package, Users, Loader2, Save, X } from "lucide-react";
 
-// Update Interface Lokal (Tambah category)
+// Update Interface Lokal
 interface CustomerMaster {
   id: string;
   customer_name: string;
@@ -231,7 +231,7 @@ const DataMaster = () => {
           </>
         )}
 
-        {/* --- TAB CUSTOMERS (Sama seperti sebelumnya, disederhanakan di sini biar tidak kepanjangan) --- */}
+        {/* --- TAB CUSTOMERS --- */}
         {activeTab === "customers" && (
            <Card className="border-t-4 border-t-blue-500">
              <CardHeader><CardTitle className="text-blue-700 flex gap-2"><Plus className="h-5 w-5"/> Tambah Pelanggan</CardTitle></CardHeader>
@@ -242,7 +242,6 @@ const DataMaster = () => {
                  <div className="flex items-end"><Button onClick={addCustomer} className="w-full bg-blue-600">Simpan</Button></div>
                </div>
              </CardContent>
-             {/* Table Customer disini (sama kayak kode sebelumnya) */}
              <CardContent>
                 <Table>
                   <TableHeader><TableRow><TableHead>Nama</TableHead><TableHead>Default</TableHead><TableHead className="text-center">Aksi</TableHead></TableRow></TableHeader>
