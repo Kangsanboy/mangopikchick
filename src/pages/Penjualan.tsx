@@ -222,7 +222,7 @@ const Penjualan = () => {
 
                 <Separator />
 
-                {/* SUMMARY BOX GANTENG (HIJAU) */}
+                {/* SUMMARY BOX */}
                 <div className="p-4 bg-green-50 border border-green-100 rounded-lg">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
                     <div><p className="text-sm text-green-600">Total Transaksi</p><p className="font-bold text-lg text-green-900">{groupedSales.length}</p></div>
