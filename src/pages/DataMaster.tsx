@@ -10,12 +10,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { TABLE_NAMES } from "@/types/database";
-import { Plus, Edit, Trash2, Package, Users, Loader2, Save, X, WalletCards } from "lucide-react";
+import { Plus, Edit, Trash2, Package, Users, Loader2, Save, WalletCards } from "lucide-react";
 
 // Interfaces
 interface CustomerMaster { id: string; customer_name: string; default_quantity: number; }
 interface ProductMaster { id: string; product_name: string; price_per_kg: number; category: string; }
-interface ExpenseCategory { id: string; name: string; }
+interface ExpenseCategory { id: string; name: string; default_amount: number; } // Ada default_amount
 
 const DataMaster = () => {
   const { toast } = useToast();
@@ -32,7 +32,7 @@ const DataMaster = () => {
   // Inputs
   const [prodName, setProdName] = useState(""); const [prodPrice, setProdPrice] = useState(""); const [prodCat, setProdCat] = useState("utuh");
   const [custName, setCustName] = useState(""); const [custQty, setCustQty] = useState("");
-  const [expName, setExpName] = useState("");
+  const [expName, setExpName] = useState(""); const [expAmount, setExpAmount] = useState(""); // Input Harga Pengeluaran
 
   // Edit Inputs
   const [editName, setEditName] = useState(""); const [editValue, setEditValue] = useState(""); const [editCat, setEditCat] = useState("");
@@ -78,9 +78,10 @@ const DataMaster = () => {
   const addExpenseCat = async () => {
     if (!expName) return;
     setSaving(true);
-    await supabase.from('expense_categories').insert({ name: expName });
-    setExpName(""); loadExpenses(); setSaving(false);
-    toast({ title: "Kategori Pengeluaran Ditambahkan" });
+    // Masukkan default_amount juga
+    await supabase.from('expense_categories').insert({ name: expName, default_amount: parseInt(expAmount) || 0 });
+    setExpName(""); setExpAmount(""); loadExpenses(); setSaving(false);
+    toast({ title: "Item Operasional Ditambahkan" });
   };
 
   // --- EDIT & DELETE ---
@@ -103,7 +104,8 @@ const DataMaster = () => {
       await supabase.from('customer_master').update({ customer_name: editName, default_quantity: parseInt(editValue) }).eq('id', editingId);
       loadCustomers();
     } else {
-      await supabase.from('expense_categories').update({ name: editName }).eq('id', editingId);
+      // Edit Expense
+      await supabase.from('expense_categories').update({ name: editName, default_amount: parseInt(editValue) }).eq('id', editingId);
       loadExpenses();
     }
     setEditingId(null); setSaving(false);
@@ -116,11 +118,11 @@ const DataMaster = () => {
     <Layout>
       <div className="space-y-6">
         <div className="flex flex-col md:flex-row justify-between gap-4">
-          <div><h1 className="text-3xl font-bold">Data Master</h1><p className="text-gray-500">Kelola Produk, Pelanggan & Pengeluaran</p></div>
+          <div><h1 className="text-3xl font-bold">Data Master</h1><p className="text-gray-500">Kelola Produk, Pelanggan & Operasional</p></div>
           <div className="flex bg-gray-100 p-1 rounded-lg">
             <button onClick={() => setActiveTab("products")} className={`px-4 py-2 rounded text-sm font-medium ${activeTab === "products" ? "bg-white text-green-700 shadow" : "text-gray-500"}`}>Produk</button>
             <button onClick={() => setActiveTab("customers")} className={`px-4 py-2 rounded text-sm font-medium ${activeTab === "customers" ? "bg-white text-blue-700 shadow" : "text-gray-500"}`}>Pelanggan</button>
-            <button onClick={() => setActiveTab("expenses")} className={`px-4 py-2 rounded text-sm font-medium ${activeTab === "expenses" ? "bg-white text-orange-700 shadow" : "text-gray-500"}`}>Pengeluaran</button>
+            <button onClick={() => setActiveTab("expenses")} className={`px-4 py-2 rounded text-sm font-medium ${activeTab === "expenses" ? "bg-white text-orange-700 shadow" : "text-gray-500"}`}>Operasional</button>
           </div>
         </div>
 
@@ -174,18 +176,24 @@ const DataMaster = () => {
 
         {activeTab === "expenses" && (
           <Card className="border-t-4 border-t-orange-500">
-            <CardHeader><CardTitle className="flex gap-2"><WalletCards className="h-5 w-5"/> Kategori Pengeluaran</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="flex gap-2"><WalletCards className="h-5 w-5"/> Kategori Operasional</CardTitle></CardHeader>
             <CardContent>
-              <div className="flex gap-4 mb-4">
-                <Input placeholder="Contoh: Gaji Karyawan, Listrik, Rokok" value={expName} onChange={e => setExpName(e.target.value)} />
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                <div className="md:col-span-2">
+                  <Input placeholder="Nama Item (ex: Rokok, Gaji)" value={expName} onChange={e => setExpName(e.target.value)} />
+                </div>
+                <div>
+                  <Input type="number" placeholder="Harga Default (Rp)" value={expAmount} onChange={e => setExpAmount(e.target.value)} />
+                </div>
                 <Button onClick={addExpenseCat} disabled={saving} className="bg-orange-600">Simpan</Button>
               </div>
               <Table>
-                <TableHeader><TableRow><TableHead>Nama Kategori</TableHead><TableHead className="text-center">Aksi</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>Nama Kategori</TableHead><TableHead className="text-right">Harga Default</TableHead><TableHead className="text-center">Aksi</TableHead></TableRow></TableHeader>
                 <TableBody>{expenseCategories.map(e => (
                   <TableRow key={e.id}>
                     <TableCell>{editingId === e.id ? <Input value={editName} onChange={e => setEditName(e.target.value)}/> : e.name}</TableCell>
-                    <TableCell className="text-center">{editingId === e.id ? <Button size="sm" onClick={saveEdit}><Save className="h-4 w-4"/></Button> : <div className="flex justify-center gap-2"><Button size="sm" variant="ghost" onClick={() => {setEditingId(e.id); setEditName(e.name)}}><Edit className="h-4 w-4"/></Button><Button size="sm" variant="ghost" className="text-red-500" onClick={() => deleteItem(e.id, 'expense_categories')}><Trash2 className="h-4 w-4"/></Button></div>}</TableCell>
+                    <TableCell className="text-right">{editingId === e.id ? <Input value={editValue} onChange={e => setEditValue(e.target.value)}/> : formatRp(e.default_amount || 0)}</TableCell>
+                    <TableCell className="text-center">{editingId === e.id ? <Button size="sm" onClick={saveEdit}><Save className="h-4 w-4"/></Button> : <div className="flex justify-center gap-2"><Button size="sm" variant="ghost" onClick={() => {setEditingId(e.id); setEditName(e.name); setEditValue((e.default_amount || 0).toString())}}><Edit className="h-4 w-4"/></Button><Button size="sm" variant="ghost" className="text-red-500" onClick={() => deleteItem(e.id, 'expense_categories')}><Trash2 className="h-4 w-4"/></Button></div>}</TableCell>
                   </TableRow>
                 ))}</TableBody>
               </Table>
