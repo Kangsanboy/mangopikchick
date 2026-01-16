@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { SaleData, TABLE_NAMES } from "@/types/database";
-import { Download, FileText, Filter, Loader2, Printer, Wallet, AlertCircle } from "lucide-react";
+import { Download, Printer, Wallet, AlertCircle } from "lucide-react";
 
 interface ExtendedSaleData extends SaleData {
   payment_status?: string;
@@ -41,38 +41,26 @@ const LaporanPenjualan = () => {
   const [customerFilter, setCustomerFilter] = useState("");
   const [loading, setLoading] = useState(true);
 
-  // States untuk Update Pembayaran
   const [selectedTx, setSelectedTx] = useState<GroupedTransaction | null>(null);
   const [inputPayment, setInputPayment] = useState(""); 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [updateLoading, setUpdateLoading] = useState(false);
-  const [isPrinting, setIsPrinting] = useState(false); // State baru untuk loading print
 
-  useEffect(() => {
-    loadSales();
-  }, []);
+  useEffect(() => { loadSales(); }, []);
 
   const loadSales = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from(TABLE_NAMES.SALES)
-        .select('*')
-        .order('date', { ascending: false });
-      
+      const { data, error } = await supabase.from(TABLE_NAMES.SALES).select('*').order('date', { ascending: false });
       if (error) throw error;
       setSales(data || []);
       groupSales(data || []);
-    } catch (error) {
-      console.error('Error:', error);
-    } finally {
-      setLoading(false);
-    }
+    } catch (error) { console.error('Error:', error); } 
+    finally { setLoading(false); }
   };
 
   const groupSales = (data: ExtendedSaleData[]) => {
     const groups: { [key: string]: GroupedTransaction } = {};
-
     data.forEach(item => {
       const key = `${item.customer_name}-${item.created_at}`;
       if (!groups[key]) {
@@ -88,11 +76,7 @@ const LaporanPenjualan = () => {
       groups[key].total_price += item.total_price || 0;
       groups[key].total_paid += item.amount_paid || 0;
     });
-
-    const groupArray = Object.values(groups).sort((a, b) => 
-      new Date(b.date).getTime() - new Date(a.date).getTime()
-    );
-    
+    const groupArray = Object.values(groups).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     setGroupedTransactions(groupArray);
     setFilteredTransactions(groupArray);
   };
@@ -125,109 +109,87 @@ const LaporanPenjualan = () => {
     finally { setUpdateLoading(false); }
   };
 
-  // --- LOGIKA CETAK STRUK + HUTANG LAMA ---
-  const handlePrint = async (tx: GroupedTransaction) => {
-    setIsPrinting(true);
-    try {
-      // 1. Hitung Keuangan Transaksi INI
-      const sisaNotaIni = Math.max(0, tx.total_price - tx.total_paid);
-      const statusText = sisaNotaIni > 0 ? "KURANG" : "LUNAS";
+  // --- LOGIKA CETAK STRUK (DIPERBAIKI) ---
+  const handlePrint = (tx: GroupedTransaction) => {
+    const sisaNotaIni = Math.max(0, tx.total_price - tx.total_paid);
+    const statusText = sisaNotaIni > 0 ? "KURANG" : "LUNAS";
 
-      // 2. Ambil Data Hutang LAMA (Previous Debt) dari Database
-      // Kita ambil semua transaksi pelanggan ini, KECUALI transaksi yang sedang di-print ini.
-      const currentIds = tx.items.map(i => i.id);
-      
-      const { data: historyData } = await supabase
-        .from(TABLE_NAMES.SALES)
-        .select('*')
-        .eq('customer_name', tx.customer_name);
+    // HITUNG HUTANG LAMA (LOGIKA BARU: Ambil dari groupedTransactions biar akurat)
+    // Filter: Pelanggan SAMA + Bukan Transaksi INI + Tanggal SEBELUM transaksi ini
+    const hutangLama = groupedTransactions
+      .filter(t => 
+        t.customer_name === tx.customer_name && // Orang yang sama
+        t.id !== tx.id && // Bukan nota yang lagi dicetak
+        new Date(t.created_at) < new Date(tx.created_at) // Transaksi lampau
+      )
+      .reduce((sum, t) => sum + Math.max(0, t.total_price - t.total_paid), 0);
 
-      let hutangLama = 0;
-      if (historyData) {
-        historyData.forEach((item: any) => {
-          // Jika item ini BUKAN bagian dari transaksi yang sedang dicetak
-          if (!currentIds.includes(item.id)) {
-            const sisaItem = Math.max(0, item.total_price - (item.amount_paid || 0));
-            hutangLama += sisaItem;
-          }
-        });
-      }
+    const totalTagihan = sisaNotaIni + hutangLama;
 
-      const totalSemuaHutang = sisaNotaIni + hutangLama;
-
-      // 3. Generate HTML Struk
-      const itemsHtml = tx.items.map(item => `
-        <div style="margin-bottom: 4px; border-bottom: 1px dotted #ccc; padding-bottom: 2px;">
-          <div style="display:flex; justify-content:space-between; font-weight:bold; font-size: 10px;">
-             <span>${item.product_type}</span><span>${formatCurrency(item.total_price)}</span>
-          </div>
-          <div style="font-size:9px; color:#333;">${item.quantity > 0 ? item.quantity + ' ekor x ' : ''}${item.weight} Kg @${formatCurrency(item.price_per_kg)}</div>
-        </div>`).join('');
-
-      const receiptContent = `
-        <html><head><title>Struk</title><style>
-          @page { size: 58mm auto; margin: 0; }
-          body { font-family: 'Courier New', monospace; font-size: 10px; width: 58mm; margin: 0; padding: 5px; color: #000; background: #fff;}
-          .header { text-align: center; margin-bottom: 8px; border-bottom: 1px dashed #000; padding-bottom:5px;}
-          .title { font-size: 12px; font-weight: 800; margin-bottom: 2px; }
-          .address { font-size: 8px; word-wrap: break-word; line-height: 1.2; }
-          .row { display: flex; justify-content: space-between; margin-bottom: 2px; }
-          .total-row { font-weight: 800; font-size: 11px; margin-top: 5px; border-top: 1px dashed #000; padding-top:5px; }
-          .sub-row { font-size: 10px; margin-bottom: 2px; color: #333; }
-          .debt-row { font-weight: 800; font-size: 11px; margin-top: 8px; border-top: 2px double #000; padding-top:5px; }
-          .footer { text-align: center; margin-top: 15px; font-size: 8px; }
-          .status-box { border: 1px solid #000; padding: 2px 4px; display: inline-block; margin-top: 5px; font-weight:bold; font-size: 10px; }
-        </style></head><body>
-        
-        <div class="header">
-          <div class="title">PA IYAT BROILER</div>
-          <div class="address">Jl. Wr. Lobak, Gandasari, Kec. Katapang, Kab. Bandung 40921</div>
+    const itemsHtml = tx.items.map(item => `
+      <div style="margin-bottom: 4px; border-bottom: 1px dotted #ccc; padding-bottom: 2px;">
+        <div style="display:flex; justify-content:space-between; font-weight:bold; font-size: 10px;">
+           <span>${item.product_type}</span><span>${formatCurrency(item.total_price)}</span>
         </div>
-        
-        <div class="row"><span>Tgl: ${new Date(tx.date).toLocaleDateString('id-ID')}</span></div>
-        <div class="row"><span>Plg: ${tx.customer_name}</span></div>
-        <div class="row"><span>Jam: ${new Date(tx.created_at).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}</span></div>
-        
-        <hr style="border-top: 1px dashed #000; border-bottom:0; margin: 5px 0;">
-        
-        ${itemsHtml}
-        
-        <div class="row total-row"><span>TOTAL NOTA</span><span>${formatCurrency(tx.total_price)}</span></div>
-        <div class="row"><span>BAYAR</span><span>${formatCurrency(tx.total_paid)}</span></div>
-        <div class="row"><span>SISA (Nota Ini)</span><span>${formatCurrency(sisaNotaIni)}</span></div>
-        
-        ${hutangLama > 0 ? `
-          <div style="margin-top: 8px; border-top: 1px dashed #000; padding-top: 5px;">
-            <div class="row sub-row"><span>Hutang Lama</span><span>${formatCurrency(hutangLama)}</span></div>
-            <div class="row debt-row">
-              <span>TOTAL TAGIHAN</span>
-              <span>${formatCurrency(totalSemuaHutang)}</span>
-            </div>
-          </div>
-        ` : ''}
-        
-        <div class="header" style="border:none; margin-top:5px;">
-          <div class="status-box">${totalSemuaHutang > 0 ? "BELUM LUNAS" : "LUNAS"}</div>
-        </div>
-        
-        <div class="footer"><p>Terima Kasih & Berkah Selalu!</p></div>
-        
-        <script>window.onload = function() { window.print(); }</script>
-        </body></html>`;
-      
-      const printWindow = window.open('', '', 'width=350,height=600');
-      if (printWindow) { printWindow.document.write(receiptContent); printWindow.document.close(); }
+        <div style="font-size:9px; color:#333;">${item.quantity > 0 ? item.quantity + ' ekor x ' : ''}${item.weight} Kg @${formatCurrency(item.price_per_kg)}</div>
+      </div>`).join('');
 
-    } catch (error) {
-      toast({title: "Gagal Mencetak", description: "Terjadi kesalahan saat mengambil data hutang.", variant: "destructive"});
-    } finally {
-      setIsPrinting(false);
-    }
+    const receiptContent = `
+      <html><head><title>Struk</title><style>
+        @page { size: 58mm auto; margin: 0; }
+        body { font-family: 'Courier New', monospace; font-size: 10px; width: 58mm; margin: 0; padding: 5px; color: #000; background: #fff;}
+        .header { text-align: center; margin-bottom: 8px; border-bottom: 1px dashed #000; padding-bottom:5px;}
+        .title { font-size: 12px; font-weight: 800; margin-bottom: 2px; }
+        .address { font-size: 8px; word-wrap: break-word; line-height: 1.2; }
+        .row { display: flex; justify-content: space-between; margin-bottom: 2px; }
+        .total-row { font-weight: 800; font-size: 11px; margin-top: 5px; border-top: 1px dashed #000; padding-top:5px; }
+        .sub-row { font-size: 10px; margin-bottom: 2px; color: #333; }
+        .debt-row { font-weight: 800; font-size: 11px; margin-top: 8px; border-top: 2px double #000; padding-top:5px; }
+        .footer { text-align: center; margin-top: 15px; font-size: 8px; }
+        .status-box { border: 1px solid #000; padding: 2px 4px; display: inline-block; margin-top: 5px; font-weight:bold; font-size: 10px; }
+      </style></head><body>
+      
+      <div class="header">
+        <div class="title">PA IYAT BROILER</div>
+        <div class="address">Jl. Wr. Lobak, Gandasari, Kec. Katapang, Kab. Bandung 40921</div>
+      </div>
+      
+      <div class="row"><span>Tgl: ${new Date(tx.date).toLocaleDateString('id-ID')}</span></div>
+      <div class="row"><span>Plg: ${tx.customer_name}</span></div>
+      <div class="row"><span>Jam: ${new Date(tx.created_at).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}</span></div>
+      
+      <hr style="border-top: 1px dashed #000; border-bottom:0; margin: 5px 0;">
+      
+      ${itemsHtml}
+      
+      <div class="row total-row"><span>TOTAL NOTA</span><span>${formatCurrency(tx.total_price)}</span></div>
+      <div class="row"><span>BAYAR</span><span>${formatCurrency(tx.total_paid)}</span></div>
+      <div class="row"><span>SISA (Nota Ini)</span><span>${formatCurrency(sisaNotaIni)}</span></div>
+      
+      ${hutangLama > 0 ? `
+        <div style="margin-top: 8px; border-top: 1px dashed #000; padding-top: 5px;">
+          <div class="row sub-row"><span>Hutang Lama</span><span>${formatCurrency(hutangLama)}</span></div>
+          <div class="row debt-row">
+            <span>TOTAL TAGIHAN</span>
+            <span>${formatCurrency(totalTagihan)}</span>
+          </div>
+        </div>
+      ` : ''}
+      
+      <div class="header" style="border:none; margin-top:5px;">
+        <div class="status-box">${totalTagihan > 0 ? "BELUM LUNAS" : "LUNAS"}</div>
+      </div>
+      
+      <div class="footer"><p>Terima Kasih & Berkah Selalu!</p></div>
+      
+      <script>window.onload = function() { window.print(); }</script>
+      </body></html>`;
+    
+    const printWindow = window.open('', '', 'width=350,height=600');
+    if (printWindow) { printWindow.document.write(receiptContent); printWindow.document.close(); }
   };
 
   const formatCurrency = (val: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(val);
-  
-  // Total summary
   const grandTotalRevenue = filteredTransactions.reduce((sum, t) => sum + t.total_price, 0);
   const grandTotalEkor = filteredTransactions.reduce((sum, t) => sum + t.total_quantity, 0);
   const totalHutang = filteredTransactions.reduce((sum, t) => sum + Math.max(0, t.total_price - t.total_paid), 0);
@@ -282,7 +244,7 @@ const LaporanPenjualan = () => {
                 <TableCell className={`text-right ${sisa <= 0 ? 'text-green-600 font-bold' : 'text-red-600 font-medium'}`}>{formatCurrency(tx.total_paid)}{sisa > 0 && <div className="text-[10px] text-red-500">Kurang: {formatCurrency(sisa)}</div>}</TableCell>
                 <TableCell className="text-center"><Badge variant="outline" className={tx.payment_status === 'Lunas' ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}>{tx.payment_status}</Badge></TableCell>
                 <TableCell className="text-center"><div className="flex justify-center gap-2">
-                  <Button size="sm" variant="ghost" onClick={() => handlePrint(tx)} disabled={isPrinting}><Printer className="h-4 w-4 text-gray-500" /></Button>
+                  <Button size="sm" variant="ghost" onClick={() => handlePrint(tx)}><Printer className="h-4 w-4 text-gray-500" /></Button>
                   <Button size="sm" variant="outline" onClick={() => {setSelectedTx(tx); setInputPayment(tx.total_paid.toString()); setIsDialogOpen(true)}}><Wallet className="h-4 w-4 mr-1" /> Bayar</Button>
                 </div></TableCell>
               </TableRow>
