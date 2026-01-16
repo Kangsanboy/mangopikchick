@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator"; // Jangan lupa import ini
+import { Separator } from "@/components/ui/separator"; 
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { Plus, Loader2, Trash2, Wallet, CalendarDays } from "lucide-react";
@@ -22,11 +22,9 @@ const Operasional = () => {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [loading, setLoading] = useState(false);
   
-  // Data
   const [categories, setCategories] = useState<any[]>([]);
   const [expenses, setExpenses] = useState<ExpenseData[]>([]);
 
-  // Form Inputs
   const [catName, setCatName] = useState("");
   const [note, setNote] = useState("");
   const [amount, setAmount] = useState("");
@@ -44,9 +42,9 @@ const Operasional = () => {
     setExpenses(data || []);
   };
 
-  // Saat kategori dipilih, otomatis isi harga default
   const handleCategoryChange = (name: string) => {
     setCatName(name);
+    // Otomatis isi harga jika ada defaultnya
     const selected = categories.find(c => c.name === name);
     if (selected && selected.default_amount) {
       setAmount(selected.default_amount.toString());
@@ -85,24 +83,25 @@ const Operasional = () => {
   return (
     <Layout>
       <div className="space-y-6">
-        <div className="flex justify-between items-center">
+        {/* Header */}
+        <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Operasional</h1>
-            <p className="text-gray-600 mt-1">Catat pengeluaran harian</p>
+            <p className="text-gray-600 mt-1">Catat biaya operasional harian</p>
           </div>
         </div>
 
-        {/* CARD INPUT */}
+        {/* Card Input */}
         <Card>
           <CardHeader>
             <CardTitle className="text-orange-700 flex items-center gap-2">
-              <Plus className="h-5 w-5" /> Input Pengeluaran Baru
+              <Plus className="h-5 w-5" /> Input Pengeluaran
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center gap-4 p-3 bg-orange-50 rounded-lg border border-orange-100">
               <CalendarDays className="h-5 w-5 text-orange-600" />
-              <Label>Tanggal Transaksi:</Label>
+              <Label>Tanggal:</Label>
               <Input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="w-auto bg-white" />
             </div>
 
@@ -118,25 +117,24 @@ const Operasional = () => {
               </div>
               <div className="md:col-span-2">
                 <Label>Keterangan (Opsional)</Label>
-                <Input placeholder="Contoh: Beli bensin, Rokok Surya 1 slop" value={note} onChange={e => setNote(e.target.value)} />
+                <Input placeholder="Contoh: Surya 1 Slop" value={note} onChange={e => setNote(e.target.value)} />
               </div>
               <div>
                 <Label>Nominal (Rp)</Label>
                 <Input type="number" placeholder="0" value={amount} onChange={e => setAmount(e.target.value)} />
               </div>
             </div>
-            <Button onClick={addExpense} disabled={loading} className="w-full bg-orange-600 hover:bg-orange-700">
-              {loading ? <Loader2 className="animate-spin mr-2"/> : <Plus className="mr-2 h-4 w-4"/>} Tambah Pengeluaran
+            <Button onClick={addExpense} disabled={loading} className="w-full mt-4 bg-orange-600 hover:bg-orange-700">
+              {loading ? <Loader2 className="animate-spin mr-2"/> : <Plus className="mr-2 h-4 w-4"/>} Simpan Pengeluaran
             </Button>
           </CardContent>
         </Card>
 
-        {/* CARD RIWAYAT & SUMMARY (TAMPILAN BARU) */}
+        {/* Card Riwayat dengan Summary Box Ganteng */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-gray-800">
-              <Wallet className="h-5 w-5 text-orange-600" /> 
-              Riwayat Pengeluaran {new Date(selectedDate).toLocaleDateString('id-ID')}
+            <CardTitle className="flex gap-2 text-gray-800">
+              <Wallet className="h-5 w-5 text-orange-600"/> Riwayat {new Date(selectedDate).toLocaleDateString('id-ID')}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -152,12 +150,7 @@ const Operasional = () => {
                       </div>
                       <div className="flex items-center gap-4">
                         <span className="font-bold text-orange-700">{formatRp(e.amount)}</span>
-                        <Button 
-                          size="icon" 
-                          variant="outline" 
-                          className="h-8 w-8 text-red-500 hover:bg-red-50 border-red-200" 
-                          onClick={() => deleteExpense(e.id)}
-                        >
+                        <Button size="icon" variant="outline" className="h-8 w-8 text-red-500 hover:bg-red-50 border-red-200" onClick={() => deleteExpense(e.id)}>
                           <Trash2 className="h-4 w-4"/>
                         </Button>
                       </div>
@@ -165,9 +158,9 @@ const Operasional = () => {
                   ))}
                 </div>
 
-                <Separator className="my-4" />
+                <Separator />
 
-                {/* SUMMARY BOX (Bagian Bawah yang "Ganteng") */}
+                {/* SUMMARY BOX (Bagian Bawah) */}
                 <div className="p-4 bg-orange-50 border border-orange-100 rounded-lg">
                   <div className="flex justify-between items-center text-orange-900">
                     <div>
@@ -175,16 +168,14 @@ const Operasional = () => {
                       <p className="font-bold text-xl">{expenses.length} item</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm text-orange-600">Total Pengeluaran Hari Ini</p>
+                      <p className="text-sm text-orange-600">Total Pengeluaran</p>
                       <p className="font-bold text-2xl">{formatRp(totalExpense)}</p>
                     </div>
                   </div>
                 </div>
               </div>
             ) : (
-              <p className="text-center py-10 text-gray-400 bg-gray-50 rounded-lg border border-dashed">
-                Belum ada data pengeluaran untuk tanggal ini.
-              </p>
+              <p className="text-center py-10 text-gray-400 bg-gray-50 rounded-lg border border-dashed">Belum ada pengeluaran hari ini.</p>
             )}
           </CardContent>
         </Card>
