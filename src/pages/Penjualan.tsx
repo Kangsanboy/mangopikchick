@@ -5,12 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { SaleData, TABLE_NAMES } from "@/types/database";
-import { CalendarDays, Plus, Loader2, ShoppingCart, Trash2, Save, ShoppingBag } from "lucide-react";
+import { TABLE_NAMES } from "@/types/database";
+import { Plus, Loader2, ShoppingCart, Trash2, Save } from "lucide-react";
 
 interface CustomerMaster {
   id: string;
@@ -48,8 +47,8 @@ const Penjualan = () => {
   const [selectedProduct, setSelectedProduct] = useState<ProductMaster | null>(null);
   
   // Input Values
-  const [quantity, setQuantity] = useState(""); // Ekor / Pcs
-  const [weight, setWeight] = useState("");     // Kg
+  const [quantity, setQuantity] = useState(""); // Ekor
+  const [weight, setWeight] = useState("");     // Kg atau Pcs
   const [pricePerKg, setPricePerKg] = useState("");
 
   // Cart State (Keranjang)
@@ -70,7 +69,6 @@ const Penjualan = () => {
   // Saat pilih pelanggan
   const handleCustomerChange = (name: string) => {
     setCustomerName(name);
-    // Kita tidak langsung set quantity, karena quantity tergantung produk nanti
   };
 
   // Saat pilih produk
@@ -107,11 +105,7 @@ const Penjualan = () => {
     }
 
     // Hitung Total per item
-    // Jika Jeroan dan beli satuan Pcs tapi tidak ada berat, mungkin harganya per Pcs? 
-    // Tapi sistem kita harga per KG. Asumsi user mengisi berat totalnya.
     const total = Math.round(weightNum * priceNum); 
-    // Kalau jeroan yang dijual per PCS (misal usus sate), user bisa akali dengan isi berat 1kg harga sesuai pcs, 
-    // tapi standar ayam potong biasanya Main Berat (KG).
 
     const newItem: CartItem = {
       tempId: Date.now(),
@@ -153,7 +147,7 @@ const Penjualan = () => {
         price_per_kg: item.pricePerKg,
         total_price: item.totalPrice,
         payment_status: 'Belum Lunas',
-        created_at: new Date().toISOString() // Biar urutannya sama
+        created_at: new Date().toISOString()
       }));
 
       const { error } = await supabase.from(TABLE_NAMES.SALES).insert(salesPayload);
@@ -164,6 +158,7 @@ const Penjualan = () => {
       // Reset Total
       setCart([]);
       setCustomerName("");
+      setSelectedProduct(null);
     } catch (error) {
       toast({ title: "Error", description: "Gagal menyimpan transaksi", variant: "destructive" });
     } finally {
