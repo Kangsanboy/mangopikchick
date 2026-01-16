@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { SaleData, TABLE_NAMES } from "@/types/database";
-import { Download, FileText, Filter, Loader2, Printer, Wallet } from "lucide-react";
+import { Download, FileText, Loader2, Printer, Wallet } from "lucide-react";
 
 interface ExtendedSaleData extends SaleData {
   payment_status?: string;
@@ -107,42 +107,60 @@ const LaporanPenjualan = () => {
     finally { setUpdateLoading(false); }
   };
 
+  // --- FUNGSI CETAK STRUK GANTENG (FIXED UKURAN KERTAS) ---
   const handlePrint = (tx: GroupedTransaction) => {
     const sisa = tx.total_paid - tx.total_price;
-    const statusText = sisa >= 0 ? "KEMBALI" : "SISA HUTANG";
+    const statusText = sisa >= 0 ? "KEMBALI" : "HUTANG";
     const itemsHtml = tx.items.map(item => `
-      <div style="margin-bottom: 5px;">
-        <div style="display:flex; justify-content:space-between; font-weight:bold;">
+      <div style="margin-bottom: 4px; border-bottom: 1px dotted #ccc; padding-bottom: 2px;">
+        <div style="display:flex; justify-content:space-between; font-weight:bold; font-size: 10px;">
            <span>${item.product_type}</span><span>${formatCurrency(item.total_price)}</span>
         </div>
-        <div style="font-size:10px; color:#555;">${item.quantity > 0 ? item.quantity + ' ekor x ' : ''}${item.weight} Kg @${formatCurrency(item.price_per_kg)}</div>
+        <div style="font-size:9px; color:#333;">${item.quantity > 0 ? item.quantity + ' ekor x ' : ''}${item.weight} Kg @${formatCurrency(item.price_per_kg)}</div>
       </div>`).join('');
 
     const receiptContent = `
       <html><head><title>Struk</title><style>
-        body { font-family: 'Courier New', monospace; font-size: 12px; width: 100%; margin: 0; padding: 10px; }
-        .header { text-align: center; margin-bottom: 10px; border-bottom: 1px dashed #000; padding-bottom:5px;}
-        .title { font-size: 16px; font-weight: bold; }
-        .row { display: flex; justify-content: space-between; margin-bottom: 4px; }
-        .total-row { font-weight: bold; font-size: 14px; margin-top: 10px; border-top: 1px dashed #000; padding-top:5px; }
-        .footer { text-align: center; margin-top: 20px; font-size: 10px; }
-        .status-box { border: 1px solid #000; padding: 2px 5px; display: inline-block; margin-top: 5px; font-weight:bold; }
+        @page { size: 58mm auto; margin: 0; }
+        body { font-family: 'Courier New', monospace; font-size: 10px; width: 58mm; margin: 0; padding: 5px; color: #000; background: #fff;}
+        .header { text-align: center; margin-bottom: 8px; border-bottom: 1px dashed #000; padding-bottom:5px;}
+        .title { font-size: 12px; font-weight: 800; margin-bottom: 2px; }
+        .address { font-size: 8px; word-wrap: break-word; line-height: 1.2; }
+        .row { display: flex; justify-content: space-between; margin-bottom: 2px; }
+        .total-row { font-weight: 800; font-size: 11px; margin-top: 8px; border-top: 1px dashed #000; padding-top:5px; }
+        .footer { text-align: center; margin-top: 15px; font-size: 8px; }
+        .status-box { border: 1px solid #000; padding: 2px 4px; display: inline-block; margin-top: 5px; font-weight:bold; font-size: 10px; }
       </style></head><body>
+      
       <div class="header">
         <div class="title">PA IYAT BROILER</div>
-        <div>Jl. Wr. Lobak, Gandasari, Katapang</div>
+        <div class="address">Jl. Wr. Lobak, Gandasari, Kec. Katapang, Kab. Bandung 40921</div>
       </div>
+      
       <div class="row"><span>Tgl: ${new Date(tx.date).toLocaleDateString('id-ID')}</span></div>
       <div class="row"><span>Plg: ${tx.customer_name}</span></div>
+      <div class="row"><span>Jam: ${new Date(tx.created_at).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}</span></div>
+      
       <hr style="border-top: 1px dashed #000; border-bottom:0; margin: 5px 0;">
+      
       ${itemsHtml}
+      
       <div class="row total-row"><span>TOTAL</span><span>${formatCurrency(tx.total_price)}</span></div>
       <div class="row"><span>BAYAR</span><span>${formatCurrency(tx.total_paid)}</span></div>
       <div class="row"><span>${statusText}</span><span>${formatCurrency(Math.abs(sisa))}</span></div>
-      <div class="header"><div class="status-box">${tx.payment_status}</div></div>
+      
+      <div class="header" style="border:none; margin-top:5px;">
+        <div class="status-box">${tx.payment_status}</div>
+      </div>
+      
       <div class="footer"><p>Terima Kasih & Berkah Selalu!</p></div>
-      <script>window.onload = function() { window.print(); }</script></body></html>`;
+      
+      <script>
+        window.onload = function() { window.print(); }
+      </script>
+      </body></html>`;
     
+    // Buka window ukuran kecil biar previewnya pas
     const printWindow = window.open('', '', 'width=350,height=600');
     if (printWindow) { printWindow.document.write(receiptContent); printWindow.document.close(); }
   };
