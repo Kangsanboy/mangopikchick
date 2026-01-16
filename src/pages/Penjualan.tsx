@@ -4,255 +4,229 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { SaleData, TABLE_NAMES } from "@/types/database";
-import { Plus, Loader2, ShoppingCart, Trash2, Save, Edit, CalendarDays } from "lucide-react";
+import { Download, FileText, Loader2, Printer, Wallet } from "lucide-react";
 
-// Interfaces
-interface CustomerMaster { id: string; customer_name: string; default_quantity: number; }
-interface ProductMaster { id: string; product_name: string; price_per_kg: number; category: string; }
-interface CartItem { tempId: number; productName: string; productType: string; quantity: number; weight: number; pricePerKg: number; totalPrice: number; }
-interface TransactionGroup { id: string; customer_name: string; date: string; total_price: number; items: SaleData[]; }
+interface ExtendedSaleData extends SaleData {
+  payment_status?: string;
+  amount_paid?: number;
+}
 
-const Penjualan = () => {
+interface GroupedTransaction {
+  id: string;
+  created_at: string;
+  date: string;
+  customer_name: string;
+  items: ExtendedSaleData[];
+  total_quantity: number;
+  total_weight: number;
+  total_price: number;
+  total_paid: number;
+  payment_status: string;
+}
+
+const LaporanPenjualan = () => {
   const { toast } = useToast();
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [groupedTransactions, setGroupedTransactions] = useState<GroupedTransaction[]>([]);
+  const [filteredTransactions, setFilteredTransactions] = useState<GroupedTransaction[]>([]);
   
-  const [products, setProducts] = useState<ProductMaster[]>([]);
-  const [masterCustomers, setMasterCustomers] = useState<CustomerMaster[]>([]);
-  const [groupedSales, setGroupedSales] = useState<TransactionGroup[]>([]); 
-  const [rawSales, setRawSales] = useState<SaleData[]>([]); 
-  
-  const [customerName, setCustomerName] = useState("");
-  const [selectedProduct, setSelectedProduct] = useState<ProductMaster | null>(null);
-  const [quantity, setQuantity] = useState("");
-  const [weight, setWeight] = useState("");
-  const [pricePerKg, setPricePerKg] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [customerFilter, setCustomerFilter] = useState("");
+  const [loading, setLoading] = useState(true);
 
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [isEditOpen, setIsEditOpen] = useState(false);
-  const [editData, setEditData] = useState<SaleData | null>(null);
-  const [editLoading, setEditLoading] = useState(false);
+  const [selectedTx, setSelectedTx] = useState<GroupedTransaction | null>(null);
+  const [inputPayment, setInputPayment] = useState(""); 
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [updateLoading, setUpdateLoading] = useState(false);
 
-  useEffect(() => { loadMasterData(); }, []);
-  useEffect(() => { loadSalesHistory(); }, [selectedDate]);
+  useEffect(() => { loadSales(); }, []);
 
-  const loadMasterData = async () => {
-    const { data: pData } = await supabase.from(TABLE_NAMES.PRODUCT_MASTER).select('*').eq('is_active', true).order('product_name');
-    const { data: cData } = await supabase.from('customer_master').select('*').eq('is_active', true).order('customer_name');
-    setProducts(pData || []); setMasterCustomers(cData || []);
-  };
-
-  const loadSalesHistory = async () => {
-    const { data, error } = await supabase.from(TABLE_NAMES.SALES).select('*').eq('date', selectedDate).order('created_at', { ascending: false });
-    if (!error && data) {
-      setRawSales(data); 
-      const groups: { [key: string]: TransactionGroup } = {};
-      data.forEach((item) => {
-        const groupKey = `${item.customer_name}-${item.created_at}`;
-        if (!groups[groupKey]) groups[groupKey] = { id: groupKey, customer_name: item.customer_name, date: item.date, total_price: 0, items: [] };
-        groups[groupKey].items.push(item);
-        groups[groupKey].total_price += item.total_price;
-      });
-      setGroupedSales(Object.values(groups));
-    }
-  };
-
-  const handleProductChange = (pName: string) => {
-    const prod = products.find(p => p.product_name === pName) || null;
-    setSelectedProduct(prod);
-    if (prod) {
-      setPricePerKg(prod.price_per_kg.toString()); setQuantity(""); setWeight("");
-      if (prod.category === 'utuh' && customerName) {
-        const cust = masterCustomers.find(c => c.customer_name === customerName);
-        if (cust && cust.default_quantity) setQuantity(cust.default_quantity.toString());
-      }
-    }
-  };
-
-  const addToCart = () => {
-    if (!selectedProduct) return;
-    const qtyNum = quantity ? parseInt(quantity) : 0;
-    const weightNum = weight ? parseFloat(weight) : 0;
-    const priceNum = pricePerKg ? parseFloat(pricePerKg) : 0;
-    if (!weightNum && !qtyNum) { toast({ title: "Gagal", description: "Masukkan Berat atau Jumlah", variant: "destructive" }); return; }
-    
-    setCart([...cart, {
-      tempId: Date.now(),
-      productName: selectedProduct.product_name,
-      productType: selectedProduct.category || 'utuh',
-      quantity: qtyNum, weight: weightNum, pricePerKg: priceNum,
-      totalPrice: Math.round(weightNum * priceNum)
-    }]);
-    setSelectedProduct(null); setQuantity(""); setWeight(""); setPricePerKg("");
-  };
-
-  const removeFromCart = (tempId: number) => setCart(cart.filter(item => item.tempId !== tempId));
-
-  const submitTransaction = async () => {
-    if (!customerName || cart.length === 0) return;
-    setLoading(true);
+  const loadSales = async () => {
     try {
-      const timestamp = new Date().toISOString();
-      const payload = cart.map(item => ({
-        date: selectedDate, customer_name: customerName, product_type: item.productName,
-        quantity: item.quantity, weight: item.weight, price_per_kg: item.pricePerKg,
-        total_price: item.totalPrice, payment_status: 'Belum Lunas', created_at: timestamp
-      }));
-      await supabase.from(TABLE_NAMES.SALES).insert(payload);
-      toast({ title: "Sukses!", description: "Transaksi tersimpan." });
-      setCart([]); setCustomerName(""); setSelectedProduct(null); loadSalesHistory();
-    } catch (error: any) { toast({ title: "Error", description: error.message, variant: "destructive" }); }
+      setLoading(true);
+      const { data, error } = await supabase.from(TABLE_NAMES.SALES).select('*').order('date', { ascending: false });
+      if (error) throw error;
+      groupSales(data || []);
+    } catch (error) { console.error('Error:', error); } 
     finally { setLoading(false); }
   };
 
-  const handleDeleteGroup = async (group: TransactionGroup) => {
-    if (!confirm(`Hapus transaksi ${group.customer_name}?`)) return;
-    await supabase.from(TABLE_NAMES.SALES).delete().in('id', group.items.map(i => i.id));
-    loadSalesHistory();
+  const groupSales = (data: ExtendedSaleData[]) => {
+    const groups: { [key: string]: GroupedTransaction } = {};
+    data.forEach(item => {
+      const key = `${item.customer_name}-${item.created_at}`;
+      if (!groups[key]) {
+        groups[key] = {
+          id: key, created_at: item.created_at, date: item.date, customer_name: item.customer_name,
+          items: [], total_quantity: 0, total_weight: 0, total_price: 0, total_paid: 0,
+          payment_status: item.payment_status || 'Belum Lunas'
+        };
+      }
+      groups[key].items.push(item);
+      groups[key].total_quantity += item.quantity || 0;
+      groups[key].total_weight += item.weight || 0;
+      groups[key].total_price += item.total_price || 0;
+      groups[key].total_paid += item.amount_paid || 0;
+    });
+    const groupArray = Object.values(groups).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    setGroupedTransactions(groupArray);
+    setFilteredTransactions(groupArray);
   };
 
-  const openEditModal = (sale: SaleData) => { setEditData({ ...sale }); setIsEditOpen(true); };
-  
-  const handleEditSave = async () => {
-    if (!editData) return;
-    setEditLoading(true);
-    await supabase.from(TABLE_NAMES.SALES).update({
-      quantity: editData.quantity, weight: editData.weight, price_per_kg: editData.price_per_kg,
-      total_price: Math.round(editData.weight * editData.price_per_kg)
-    }).eq('id', editData.id);
-    setIsEditOpen(false); setEditLoading(false); loadSalesHistory();
-    toast({ title: "Update Berhasil" });
+  useEffect(() => {
+    let filtered = [...groupedTransactions];
+    if (startDate) filtered = filtered.filter(t => t.date >= startDate);
+    if (endDate) filtered = filtered.filter(t => t.date <= endDate);
+    if (customerFilter) filtered = filtered.filter(t => t.customer_name.toLowerCase().includes(customerFilter.toLowerCase()));
+    setFilteredTransactions(filtered);
+  }, [groupedTransactions, startDate, endDate, customerFilter]);
+
+  const handleUpdatePayment = async () => {
+    if (!selectedTx) return;
+    setUpdateLoading(true);
+    try {
+      const bayarTotal = parseInt(inputPayment.replace(/\D/g, '')) || 0;
+      const status = bayarTotal >= selectedTx.total_price ? "Lunas" : "Belum Lunas";
+      const items = selectedTx.items;
+      
+      if (items.length > 0) {
+        await supabase.from(TABLE_NAMES.SALES).update({ payment_status: status, amount_paid: bayarTotal }).eq('id', items[0].id);
+        if (items.length > 1) {
+          await supabase.from(TABLE_NAMES.SALES).update({ payment_status: status, amount_paid: 0 }).in('id', items.slice(1).map(i => i.id));
+        }
+      }
+      toast({ title: "Pembayaran Disimpan", description: `Status: ${status}` });
+      setIsDialogOpen(false); loadSales(); 
+    } catch (error) { toast({ title: "Error", description: "Gagal update", variant: "destructive" }); }
+    finally { setUpdateLoading(false); }
+  };
+
+  // --- FUNGSI CETAK STRUK GANTENG (FIXED UKURAN KERTAS) ---
+  const handlePrint = (tx: GroupedTransaction) => {
+    const sisa = tx.total_paid - tx.total_price;
+    const statusText = sisa >= 0 ? "KEMBALI" : "HUTANG";
+    const itemsHtml = tx.items.map(item => `
+      <div style="margin-bottom: 4px; border-bottom: 1px dotted #ccc; padding-bottom: 2px;">
+        <div style="display:flex; justify-content:space-between; font-weight:bold; font-size: 10px;">
+           <span>${item.product_type}</span><span>${formatCurrency(item.total_price)}</span>
+        </div>
+        <div style="font-size:9px; color:#333;">${item.quantity > 0 ? item.quantity + ' ekor x ' : ''}${item.weight} Kg @${formatCurrency(item.price_per_kg)}</div>
+      </div>`).join('');
+
+    const receiptContent = `
+      <html><head><title>Struk</title><style>
+        @page { size: 58mm auto; margin: 0; }
+        body { font-family: 'Courier New', monospace; font-size: 10px; width: 58mm; margin: 0; padding: 5px; color: #000; background: #fff;}
+        .header { text-align: center; margin-bottom: 8px; border-bottom: 1px dashed #000; padding-bottom:5px;}
+        .title { font-size: 12px; font-weight: 800; margin-bottom: 2px; }
+        .address { font-size: 8px; word-wrap: break-word; line-height: 1.2; }
+        .row { display: flex; justify-content: space-between; margin-bottom: 2px; }
+        .total-row { font-weight: 800; font-size: 11px; margin-top: 8px; border-top: 1px dashed #000; padding-top:5px; }
+        .footer { text-align: center; margin-top: 15px; font-size: 8px; }
+        .status-box { border: 1px solid #000; padding: 2px 4px; display: inline-block; margin-top: 5px; font-weight:bold; font-size: 10px; }
+      </style></head><body>
+      
+      <div class="header">
+        <div class="title">PA IYAT BROILER</div>
+        <div class="address">Jl. Wr. Lobak, Gandasari, Kec. Katapang, Kab. Bandung 40921</div>
+      </div>
+      
+      <div class="row"><span>Tgl: ${new Date(tx.date).toLocaleDateString('id-ID')}</span></div>
+      <div class="row"><span>Plg: ${tx.customer_name}</span></div>
+      <div class="row"><span>Jam: ${new Date(tx.created_at).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}</span></div>
+      
+      <hr style="border-top: 1px dashed #000; border-bottom:0; margin: 5px 0;">
+      
+      ${itemsHtml}
+      
+      <div class="row total-row"><span>TOTAL</span><span>${formatCurrency(tx.total_price)}</span></div>
+      <div class="row"><span>BAYAR</span><span>${formatCurrency(tx.total_paid)}</span></div>
+      <div class="row"><span>${statusText}</span><span>${formatCurrency(Math.abs(sisa))}</span></div>
+      
+      <div class="header" style="border:none; margin-top:5px;">
+        <div class="status-box">${tx.payment_status}</div>
+      </div>
+      
+      <div class="footer"><p>Terima Kasih & Berkah Selalu!</p></div>
+      
+      <script>
+        window.onload = function() { window.print(); }
+      </script>
+      </body></html>`;
+    
+    // Buka window ukuran kecil biar previewnya pas
+    const printWindow = window.open('', '', 'width=350,height=600');
+    if (printWindow) { printWindow.document.write(receiptContent); printWindow.document.close(); }
   };
 
   const formatCurrency = (val: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(val);
-  const grandTotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);
-  
-  // TOTAL SUMMARY
-  const totalHariIni = rawSales.reduce((sum, s) => sum + s.total_price, 0);
-  const totalEkor = rawSales.reduce((sum, s) => sum + (s.quantity || 0), 0);
-  const totalBerat = rawSales.reduce((sum, s) => sum + (s.weight || 0), 0);
+  const grandTotalRevenue = filteredTransactions.reduce((sum, t) => sum + t.total_price, 0);
+
+  const exportToExcel = () => {
+    if (filteredTransactions.length === 0) return toast({ title: "Kosong", variant: "destructive" });
+    const headers = ['Tanggal', 'Pelanggan', 'Total Item', 'Total Tagihan', 'Total Bayar', 'Status'];
+    const rows = filteredTransactions.map(tx => [tx.date, `"${tx.customer_name}"`, tx.items.length, tx.total_price, tx.total_paid, tx.payment_status]);
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([csvContent], { type: 'text/csv;charset=utf-8;' }));
+    link.download = `Laporan_Gacor_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+  };
 
   return (
     <Layout>
       <div className="space-y-6 pb-20">
-        <h1 className="text-3xl font-bold text-gray-900">Penjualan (Kasir)</h1>
+        <div className="flex justify-between items-center">
+          <div><h1 className="text-3xl font-bold text-gray-900">Laporan Penjualan</h1><p className="text-gray-600">Gabungan Transaksi</p></div>
+          <Button onClick={exportToExcel} className="bg-green-600 hover:bg-green-700"><Download className="mr-2 h-4 w-4"/> Excel</Button>
+        </div>
 
-        {/* INPUT AREA */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <Card className="bg-blue-50 border-blue-200"><CardHeader className="pb-2"><CardTitle className="text-sm text-blue-700">Total Transaksi</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-blue-900">{filteredTransactions.length}</div></CardContent></Card>
+          <Card className="bg-orange-50 border-orange-200"><CardHeader className="pb-2"><CardTitle className="text-sm text-orange-700">Pendapatan</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-orange-900">{formatCurrency(grandTotalRevenue)}</div></CardContent></Card>
+        </div>
+
         <Card>
-          <CardContent className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div><Label>Tanggal</Label><Input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} /></div>
-            <div>
-              <Label className="text-blue-700 font-bold">Pelanggan</Label>
-              <Select value={customerName} onValueChange={setCustomerName}>
-                <SelectTrigger className="h-10 bg-blue-50 border-blue-200"><SelectValue placeholder="-- Cari Pelanggan --" /></SelectTrigger>
-                <SelectContent>{masterCustomers.map(c => <SelectItem key={c.id} value={c.customer_name}>{c.customer_name}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
+          <CardContent className="p-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+             <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+             <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
+             <Input placeholder="Cari Pelanggan..." value={customerFilter} onChange={e => setCustomerFilter(e.target.value)} />
+             <Button variant="outline" onClick={() => {setStartDate(""); setEndDate(""); setCustomerFilter("")}}>Reset</Button>
           </CardContent>
         </Card>
 
-        {customerName && (
-          <Card className="border-t-4 border-t-purple-500 shadow-md">
-            <CardHeader className="pb-2"><CardTitle className="text-lg flex justify-between"><span>Input Barang</span>{selectedProduct && <Badge>{selectedProduct.category}</Badge>}</CardTitle></CardHeader>
-            <CardContent className="space-y-4">
-              <Select value={selectedProduct?.product_name || ""} onValueChange={handleProductChange}><SelectTrigger><SelectValue placeholder="-- Pilih Produk --" /></SelectTrigger><SelectContent>{products.map(p => <SelectItem key={p.id} value={p.product_name}>{p.product_name}</SelectItem>)}</SelectContent></Select>
-              {selectedProduct && (
-                <div className="bg-purple-50 p-4 rounded-lg space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {selectedProduct.category === 'utuh' && <div><Label>Ekor</Label><Input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} className="bg-white" autoFocus /></div>}
-                    <div><Label>Berat (Kg)</Label><Input type="number" step="0.01" value={weight} onChange={e => setWeight(e.target.value)} className="bg-white" /></div>
-                    <div><Label>Harga</Label><Input type="number" value={pricePerKg} onChange={e => setPricePerKg(e.target.value)} className="bg-white" /></div>
-                  </div>
-                  <Button onClick={addToCart} className="w-full bg-purple-600 hover:bg-purple-700"><Plus className="mr-2 h-4 w-4"/> Masukkan Keranjang</Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
+        <Card><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Tanggal</TableHead><TableHead>Pelanggan</TableHead><TableHead>Detail</TableHead><TableHead className="text-right">Tagihan</TableHead><TableHead className="text-right">Bayar</TableHead><TableHead className="text-center">Status</TableHead><TableHead className="text-center">Aksi</TableHead></TableRow></TableHeader>
+          <TableBody>{filteredTransactions.map((tx) => (
+            <TableRow key={tx.id}>
+              <TableCell>{new Date(tx.date).toLocaleDateString('id-ID')}</TableCell>
+              <TableCell className="font-bold">{tx.customer_name}</TableCell>
+              <TableCell><div className="text-xs text-gray-600">{tx.items.map((i,idx)=><div key={idx}>{i.product_type} ({i.weight}kg)</div>)}</div></TableCell>
+              <TableCell className="text-right font-bold">{formatCurrency(tx.total_price)}</TableCell>
+              <TableCell className="text-right text-green-600">{formatCurrency(tx.total_paid)}</TableCell>
+              <TableCell className="text-center"><Badge variant="outline" className={tx.payment_status==='Lunas'?"bg-green-100":"bg-red-100"}>{tx.payment_status}</Badge></TableCell>
+              <TableCell className="text-center"><div className="flex justify-center gap-2">
+                <Button size="sm" variant="ghost" onClick={() => handlePrint(tx)}><Printer className="h-4 w-4 text-gray-500"/></Button>
+                <Button size="sm" variant="outline" onClick={() => {setSelectedTx(tx); setInputPayment(tx.total_paid.toString()); setIsDialogOpen(true)}}><Wallet className="h-4 w-4 mr-1"/> Bayar</Button>
+              </div></TableCell>
+            </TableRow>
+          ))}</TableBody></Table></CardContent></Card>
 
-        {cart.length > 0 && (
-          <Card className="border-green-200 bg-green-50/50">
-            <CardHeader><CardTitle className="flex items-center gap-2 text-green-800"><ShoppingCart className="h-5 w-5" /> Keranjang</CardTitle></CardHeader>
-            <CardContent>
-              <div className="bg-white rounded-md border shadow-sm overflow-hidden mb-4">
-                <table className="w-full text-sm text-left"><thead className="bg-gray-100 font-medium"><tr><th className="p-3">Produk</th><th className="p-3 text-center">Qty</th><th className="p-3 text-center">Berat</th><th className="p-3 text-right">Subtotal</th><th className="p-3 text-center">Aksi</th></tr></thead>
-                  <tbody>{cart.map((item) => (<tr key={item.tempId} className="border-b"><td className="p-3 font-medium">{item.productName}</td><td className="p-3 text-center">{item.quantity || '-'}</td><td className="p-3 text-center">{item.weight}</td><td className="p-3 text-right font-bold">{formatCurrency(item.totalPrice)}</td><td className="p-3 text-center"><button onClick={() => removeFromCart(item.tempId)} className="text-red-500"><Trash2 className="h-4 w-4"/></button></td></tr>))}</tbody>
-                </table>
-              </div>
-              <Button size="lg" onClick={submitTransaction} disabled={loading} className="w-full bg-green-600 hover:bg-green-700 font-bold shadow-lg">{loading ? <Loader2 className="animate-spin mr-2"/> : <Save className="mr-2 h-5 w-5" />} SIMPAN TRANSAKSI ({formatCurrency(grandTotal)})</Button>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* RIWAYAT & SUMMARY BOX */}
-        <Card className="border-t-4 border-t-gray-500">
-          <CardHeader><CardTitle className="flex items-center gap-2"><CalendarDays className="h-5 w-5" /> Riwayat {new Date(selectedDate).toLocaleDateString('id-ID')}</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
-            {groupedSales.length > 0 ? (
-              <>
-                <div className="space-y-4">
-                  {groupedSales.map((group) => (
-                    <div key={group.id} className="border rounded-lg p-4 bg-white shadow-sm hover:shadow-md transition-all">
-                      <div className="flex justify-between items-start mb-2">
-                        <h3 className="font-bold text-lg text-gray-900">{group.customer_name}</h3>
-                        <div className="text-right">
-                           <span className="block font-bold text-green-700 text-lg">{formatCurrency(group.total_price)}</span>
-                           <span className="text-xs text-gray-400">{new Date(group.items[0].created_at).toLocaleTimeString('id-ID')}</span>
-                        </div>
-                      </div>
-                      <div className="bg-gray-50 rounded p-3 text-sm space-y-2">
-                        {group.items.map((item) => (
-                          <div key={item.id} className="flex justify-between border-b border-gray-200 last:border-0 pb-1 last:pb-0 items-center">
-                             <div className="flex-1"><span className="font-medium">{item.product_type}</span> <span className="text-gray-500 ml-2 text-xs">{item.quantity > 0 ? `${item.quantity} ekor, ` : ''}{item.weight} Kg</span></div>
-                             <div className="flex items-center gap-3"><span className="text-gray-700 font-medium">{formatCurrency(item.total_price)}</span><button onClick={() => openEditModal(item)} className="text-blue-500 hover:text-blue-700"><Edit className="h-3 w-3"/></button></div>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="mt-3 flex justify-end"><Button size="sm" variant="destructive" className="h-8 text-xs bg-red-50 text-red-600 border border-red-200 hover:bg-red-100" onClick={() => handleDeleteGroup(group)}><Trash2 className="h-3 w-3 mr-1" /> Hapus</Button></div>
-                    </div>
-                  ))}
-                </div>
-
-                <Separator />
-
-                {/* SUMMARY BOX */}
-                <div className="p-4 bg-green-50 border border-green-100 rounded-lg">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-                    <div><p className="text-sm text-green-600">Total Transaksi</p><p className="font-bold text-lg text-green-900">{groupedSales.length}</p></div>
-                    <div><p className="text-sm text-green-600">Total Ekor</p><p className="font-bold text-lg text-green-900">{totalEkor}</p></div>
-                    <div><p className="text-sm text-green-600">Total Berat</p><p className="font-bold text-lg text-green-900">{totalBerat.toFixed(1)} Kg</p></div>
-                    <div><p className="text-sm text-green-600">Total Omzet</p><p className="font-bold text-xl text-green-900">{formatCurrency(totalHariIni)}</p></div>
-                  </div>
-                </div>
-              </>
-            ) : <div className="text-center py-10 text-gray-400 bg-gray-50 rounded-lg border border-dashed">Belum ada transaksi hari ini.</div>}
-          </CardContent>
-        </Card>
+        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}><DialogContent><DialogHeader><DialogTitle>Update Pembayaran</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-4">
+             <div className="p-3 bg-gray-50 rounded flex justify-between"><span>Tagihan:</span><span className="font-bold">{selectedTx && formatCurrency(selectedTx.total_price)}</span></div>
+             <div><Label>Uang Masuk</Label><Input type="number" value={inputPayment} onChange={e => setInputPayment(e.target.value)} /></div>
+          </div>
+          <DialogFooter><Button onClick={handleUpdatePayment} disabled={updateLoading} className="bg-blue-600">{updateLoading?<Loader2 className="animate-spin"/>:"Simpan"}</Button></DialogFooter>
+        </DialogContent></Dialog>
       </div>
-
-      <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-        <DialogContent><DialogHeader><DialogTitle>Edit Item</DialogTitle></DialogHeader>
-          {editData && (
-            <div className="space-y-4 py-2">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2"><Label>Ekor</Label><Input type="number" value={editData.quantity} onChange={(e) => setEditData({...editData, quantity: parseInt(e.target.value)||0})} /></div>
-                <div className="space-y-2"><Label>Berat</Label><Input type="number" step="0.01" value={editData.weight} onChange={(e) => setEditData({...editData, weight: parseFloat(e.target.value)||0})} /></div>
-              </div>
-              <div className="space-y-2"><Label>Harga Satuan</Label><Input type="number" value={editData.price_per_kg} onChange={(e) => setEditData({...editData, price_per_kg: parseFloat(e.target.value)||0})} /></div>
-            </div>
-          )}
-          <DialogFooter><Button onClick={handleEditSave} disabled={editLoading} className="bg-blue-600">{editLoading ? <Loader2 className="animate-spin"/> : "Simpan"}</Button></DialogFooter>
-        </DialogContent>
-      </Dialog>
     </Layout>
   );
 };
 
-export default Penjualan;
+export default LaporanPenjualan;
