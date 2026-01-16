@@ -6,11 +6,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { SaleData, TABLE_NAMES } from "@/types/database";
-import { Download, FileText, Filter, Loader2, Printer, Edit, Wallet, CheckCircle2, XCircle } from "lucide-react";
+import { Download, FileText, Filter, Loader2, Printer, Wallet } from "lucide-react";
 
 interface ExtendedSaleData extends SaleData {
   payment_status?: string;
@@ -76,7 +76,7 @@ const LaporanPenjualan = () => {
     const groups: { [key: string]: GroupedTransaction } = {};
 
     data.forEach(item => {
-      // Grouping key: Customer + Time (biar aman kalau customer belanja 2x sehari beda jam)
+      // Grouping key: Customer + Time
       const key = `${item.customer_name}-${item.created_at}`;
       
       if (!groups[key]) {
@@ -98,7 +98,7 @@ const LaporanPenjualan = () => {
       groups[key].total_quantity += item.quantity || 0;
       groups[key].total_weight += item.weight || 0;
       groups[key].total_price += item.total_price || 0;
-      groups[key].total_paid += item.amount_paid || 0; // Asumsi item.amount_paid terdistribusi atau disimpan per item
+      groups[key].total_paid += item.amount_paid || 0;
     });
 
     const groupArray = Object.values(groups).sort((a, b) => 
@@ -122,34 +122,29 @@ const LaporanPenjualan = () => {
     setFilteredTransactions(filtered);
   }, [groupedTransactions, startDate, endDate, customerFilter]);
 
-  // UPDATE PAYMENT (PERBAIKAN LOGIKA 1 RUPIAH)
+  // UPDATE PAYMENT (LOGIKA BARU YANG SUDAH DIPERBAIKI)
   const handleUpdatePayment = async () => {
     if (!selectedTx) return;
     setUpdateLoading(true);
 
     try {
-      // Hapus karakter non-angka
       const bayarTotal = parseInt(inputPayment.replace(/\D/g, '')) || 0;
       const totalTagihan = selectedTx.total_price;
       
       let status = "Belum Lunas";
       if (bayarTotal >= totalTagihan) status = "Lunas";
 
-      // --- LOGIKA BARU: Simpan Total Bayar di Item Pertama Saja ---
-      // Cara ini paling aman & akurat. Tidak perlu dibagi rata yang bikin desimal.
-      // Item pertama menampung total bayar, item sisanya 0.
-      // Saat digrouping nanti, totalnya akan tetap benar (Total = Item1 + 0 + 0).
-
       const items = selectedTx.items;
       
+      // Update item pertama dengan TOTAL pembayaran (biar tidak ada koma/pecahan)
       if (items.length > 0) {
-        // 1. Update item pertama dengan TOTAL pembayaran
+        // Item 1: Simpan semua uang bayaran disini
         await supabase.from(TABLE_NAMES.SALES).update({
           payment_status: status,
           amount_paid: bayarTotal 
         }).eq('id', items[0].id);
 
-        // 2. Update item sisanya (jika ada) jadi 0 biar tidak double count
+        // Item 2 dst: Set 0 (biar totalnya ga double)
         if (items.length > 1) {
           const otherIds = items.slice(1).map(i => i.id);
           await supabase.from(TABLE_NAMES.SALES).update({
@@ -159,44 +154,11 @@ const LaporanPenjualan = () => {
         }
       }
 
-      toast({ title: "Pembayaran Disimpan", description: `Status: ${status} - Rp ${formatCurrency(bayarTotal)}` });
+      toast({ title: "Pembayaran Disimpan", description: `Status: ${status} - Total Bayar: ${formatCurrency(bayarTotal)}` });
       setIsDialogOpen(false);
       loadSales(); 
     } catch (error) {
       console.error(error);
-      toast({ title: "Error", description: "Gagal update pembayaran", variant: "destructive" });
-    } finally {
-      setUpdateLoading(false);
-    }
-  };
-      
-      // Update Status
-      const { error } = await supabase
-        .from(TABLE_NAMES.SALES)
-        .update({ 
-          payment_status: status,
-          // Simpan amount_paid hanya sebagai penanda (nanti grouping ulang akan menjumlahkannya)
-          // Sebenarnya idealnya ada tabel 'transaction' terpisah, tapi ini workaround.
-          // Kita set amount_paid proporsional berdasarkan harga item
-          // amount_paid = (item_price / total_price) * bayarTotal
-        }) 
-        .in('id', idsToUpdate);
-
-      // Karena SQL update logic di atas susah tanpa query kompleks, kita loop update di frontend (agak lambat tapi pasti)
-      // ATAU: Kita update satu-satu.
-      
-      for (const item of selectedTx.items) {
-        const itemShare = (item.total_price / totalTagihan) * bayarTotal;
-        await supabase.from(TABLE_NAMES.SALES).update({
-          payment_status: status,
-          amount_paid: Math.floor(itemShare)
-        }).eq('id', item.id);
-      }
-
-      toast({ title: "Pembayaran Disimpan", description: `Status: ${status}` });
-      setIsDialogOpen(false);
-      loadSales(); 
-    } catch (error) {
       toast({ title: "Error", description: "Gagal update pembayaran", variant: "destructive" });
     } finally {
       setUpdateLoading(false);
@@ -208,7 +170,6 @@ const LaporanPenjualan = () => {
     const sisa = tx.total_paid - tx.total_price;
     const statusText = sisa >= 0 ? "KEMBALI" : "SISA HUTANG";
 
-    // Generate HTML row untuk setiap item
     const itemsHtml = tx.items.map(item => `
       <div style="margin-bottom: 5px;">
         <div style="display:flex; justify-content:space-between; font-weight:bold;">
@@ -283,6 +244,33 @@ const LaporanPenjualan = () => {
   const grandTotalRevenue = filteredTransactions.reduce((sum, t) => sum + t.total_price, 0);
   const grandTotalEkor = filteredTransactions.reduce((sum, t) => sum + t.total_quantity, 0);
 
+  // EXPORT EXCEL
+  const exportToExcel = () => {
+    if (filteredTransactions.length === 0) {
+      toast({ title: "Tidak ada data", description: "Tidak ada data untuk diekspor", variant: "destructive" });
+      return;
+    }
+
+    const headers = ['Tanggal', 'Pelanggan', 'Total Item', 'Total Ekor', 'Total Berat (Kg)', 'Total Tagihan', 'Total Bayar', 'Status'];
+    const dataRows = filteredTransactions.map(tx => [
+      new Date(tx.date).toLocaleDateString('id-ID'),
+      `"${tx.customer_name}"`,
+      tx.items.length,
+      tx.total_quantity,
+      tx.total_weight.toFixed(1),
+      tx.total_price,
+      tx.total_paid,
+      `"${tx.payment_status}"`
+    ]);
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...dataRows.map(row => row.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `Laporan_Transaksi_Gacor_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+  };
+
   return (
     <Layout>
       <div className="space-y-6 pb-20">
@@ -292,6 +280,9 @@ const LaporanPenjualan = () => {
             <h1 className="text-3xl font-bold text-gray-900">Laporan Penjualan</h1>
             <p className="text-gray-600">Laporan per Transaksi (Gabungan)</p>
           </div>
+          <Button onClick={exportToExcel} className="bg-green-600 hover:bg-green-700">
+            <Download className="h-4 w-4 mr-2" /> Unduh Excel
+          </Button>
         </div>
 
         {/* SUMMARY CARDS */}
@@ -353,7 +344,7 @@ const LaporanPenjualan = () => {
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-bold">{formatCurrency(tx.total_price)}</TableCell>
-                      <TableCell className="text-right text-green-600">{formatCurrency(tx.total_paid)}</TableCell>
+                      <TableCell className={`text-right ${sisa <= 0 ? 'text-green-600 font-bold' : 'text-orange-600'}`}>{formatCurrency(tx.total_paid)}</TableCell>
                       <TableCell className="text-center">
                         <Badge variant="outline" className={tx.payment_status === 'Lunas' ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}>
                           {tx.payment_status}
@@ -361,7 +352,7 @@ const LaporanPenjualan = () => {
                       </TableCell>
                       <TableCell className="text-center">
                         <div className="flex justify-center gap-2">
-                          <Button size="icon" variant="ghost" onClick={() => handlePrint(tx)}>
+                          <Button size="sm" variant="ghost" onClick={() => handlePrint(tx)}>
                             <Printer className="h-4 w-4 text-gray-500" />
                           </Button>
                           <Button size="sm" variant="outline" onClick={() => {
@@ -393,6 +384,7 @@ const LaporanPenjualan = () => {
                <div>
                  <Label>Total Uang Masuk (Rp)</Label>
                  <Input type="number" value={inputPayment} onChange={e => setInputPayment(e.target.value)} />
+                 <p className="text-xs text-gray-500 mt-1">*Masukkan nominal total yang sudah dibayar pelanggan</p>
                </div>
             </div>
             <DialogFooter>
