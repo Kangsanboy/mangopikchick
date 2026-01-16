@@ -33,18 +33,29 @@ const Operasional = () => {
   useEffect(() => { loadExpenses(); }, [selectedDate]);
 
   const loadCategories = async () => {
-    const { data } = await supabase.from('expense_categories').select('*').eq('is_active', true).order('name');
-    setCategories(data || []);
+    // Ensure table 'expense_categories' exists or handle error gracefully
+    const { data, error } = await supabase.from('expense_categories').select('*').eq('is_active', true).order('name');
+    if (!error) setCategories(data || []);
   };
 
   const loadExpenses = async () => {
-    const { data } = await supabase.from('operational_expenses').select('*').eq('date', selectedDate).order('created_at', { ascending: false });
-    setExpenses(data || []);
+    // This is where your 404 was coming from if the table didn't exist
+    const { data, error } = await supabase
+      .from('operational_expenses')
+      .select('*')
+      .eq('date', selectedDate)
+      .order('created_at', { ascending: false });
+      
+    if (error) {
+      console.error("Error loading expenses:", error);
+      // Optional: don't show toast on 404 to avoid spamming user if table is missing during dev
+    } else {
+      setExpenses(data || []);
+    }
   };
 
   const handleCategoryChange = (name: string) => {
     setCatName(name);
-    // Otomatis isi harga jika ada defaultnya
     const selected = categories.find(c => c.name === name);
     if (selected && selected.default_amount) {
       setAmount(selected.default_amount.toString());
@@ -54,27 +65,44 @@ const Operasional = () => {
   };
 
   const addExpense = async () => {
-    if (!catName || !amount) { toast({ title: "Error", description: "Lengkapi data!", variant: "destructive" }); return; }
-    setLoading(true);
-    const { error } = await supabase.from('operational_expenses').insert({
-      category_name: catName,
-      note: note,
-      amount: parseInt(amount),
-      date: selectedDate
-    });
-    if (error) toast({ title: "Gagal", variant: "destructive" });
-    else {
-      toast({ title: "Berhasil", description: "Pengeluaran dicatat." });
-      setCatName(""); setNote(""); setAmount("");
-      loadExpenses();
+    if (!catName || !amount) { 
+      toast({ title: "Error", description: "Lengkapi data kategori dan nominal!", variant: "destructive" }); 
+      return; 
     }
-    setLoading(false);
+    setLoading(true);
+    
+    try {
+      const { error } = await supabase.from('operational_expenses').insert({
+        category_name: catName,
+        note: note,
+        amount: parseInt(amount),
+        date: selectedDate
+      });
+
+      if (error) throw error;
+
+      toast({ title: "Berhasil", description: "Pengeluaran berhasil dicatat." });
+      setCatName(""); 
+      setNote(""); 
+      setAmount("");
+      loadExpenses();
+    } catch (error: any) {
+      toast({ title: "Gagal", description: error.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const deleteExpense = async (id: string) => {
-    if(!confirm("Hapus data ini?")) return;
-    await supabase.from('operational_expenses').delete().eq('id', id);
-    loadExpenses();
+    if(!confirm("Yakin ingin menghapus data pengeluaran ini?")) return;
+    try {
+      const { error } = await supabase.from('operational_expenses').delete().eq('id', id);
+      if (error) throw error;
+      loadExpenses();
+      toast({ title: "Dihapus", description: "Data berhasil dihapus" });
+    } catch (error) {
+      toast({ title: "Error", description: "Gagal menghapus data", variant: "destructive" });
+    }
   };
 
   const formatRp = (n: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n);
@@ -117,7 +145,7 @@ const Operasional = () => {
               </div>
               <div className="md:col-span-2">
                 <Label>Keterangan (Opsional)</Label>
-                <Input placeholder="Contoh: Surya 1 Slop" value={note} onChange={e => setNote(e.target.value)} />
+                <Input placeholder="Contoh: Beli bensin, Rokok Surya 1 slop" value={note} onChange={e => setNote(e.target.value)} />
               </div>
               <div>
                 <Label>Nominal (Rp)</Label>
