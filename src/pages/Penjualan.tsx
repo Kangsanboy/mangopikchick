@@ -26,7 +26,7 @@ const Penjualan = () => {
   const [products, setProducts] = useState<ProductMaster[]>([]);
   const [masterCustomers, setMasterCustomers] = useState<CustomerMaster[]>([]);
   const [groupedSales, setGroupedSales] = useState<TransactionGroup[]>([]); 
-  const [rawSales, setRawSales] = useState<SaleData[]>([]); // Untuk hitung total
+  const [rawSales, setRawSales] = useState<SaleData[]>([]); 
   
   const [customerName, setCustomerName] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<ProductMaster | null>(null);
@@ -52,7 +52,7 @@ const Penjualan = () => {
   const loadSalesHistory = async () => {
     const { data, error } = await supabase.from(TABLE_NAMES.SALES).select('*').eq('date', selectedDate).order('created_at', { ascending: false });
     if (!error && data) {
-      setRawSales(data); // Simpan raw data
+      setRawSales(data); 
       const groups: { [key: string]: TransactionGroup } = {};
       data.forEach((item) => {
         const groupKey = `${item.customer_name}-${item.created_at}`;
