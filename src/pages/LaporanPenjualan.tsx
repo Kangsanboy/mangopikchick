@@ -10,7 +10,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { SaleData, TABLE_NAMES } from "@/types/database";
-import { Download, Printer, Wallet, AlertCircle } from "lucide-react";
+// PERBAIKAN DISINI: Menambahkan Loader2 yang tadi ketinggalan
+import { Download, Printer, Wallet, AlertCircle, Loader2 } from "lucide-react";
 
 interface ExtendedSaleData extends SaleData {
   payment_status?: string;
@@ -109,18 +110,15 @@ const LaporanPenjualan = () => {
     finally { setUpdateLoading(false); }
   };
 
-  // --- LOGIKA CETAK STRUK (DIPERBAIKI) ---
   const handlePrint = (tx: GroupedTransaction) => {
     const sisaNotaIni = Math.max(0, tx.total_price - tx.total_paid);
-    const statusText = sisaNotaIni > 0 ? "KURANG" : "LUNAS";
-
-    // HITUNG HUTANG LAMA (LOGIKA BARU: Ambil dari groupedTransactions biar akurat)
-    // Filter: Pelanggan SAMA + Bukan Transaksi INI + Tanggal SEBELUM transaksi ini
+    
+    // HITUNG HUTANG LAMA
     const hutangLama = groupedTransactions
       .filter(t => 
-        t.customer_name === tx.customer_name && // Orang yang sama
-        t.id !== tx.id && // Bukan nota yang lagi dicetak
-        new Date(t.created_at) < new Date(tx.created_at) // Transaksi lampau
+        t.customer_name === tx.customer_name && 
+        t.id !== tx.id && 
+        new Date(t.created_at) < new Date(tx.created_at)
       )
       .reduce((sum, t) => sum + Math.max(0, t.total_price - t.total_paid), 0);
 
@@ -190,6 +188,7 @@ const LaporanPenjualan = () => {
   };
 
   const formatCurrency = (val: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(val);
+  
   const grandTotalRevenue = filteredTransactions.reduce((sum, t) => sum + t.total_price, 0);
   const grandTotalEkor = filteredTransactions.reduce((sum, t) => sum + t.total_quantity, 0);
   const totalHutang = filteredTransactions.reduce((sum, t) => sum + Math.max(0, t.total_price - t.total_paid), 0);
