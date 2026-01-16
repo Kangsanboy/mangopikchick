@@ -200,8 +200,8 @@ const LaporanPenjualan = () => {
         <body>
           <div class="container">
             <div class="header">
-              <div class="title">AYAM POTONG GACOR</div>
-              <div>Jalan Pesantren No. 1</div>
+              <div class="title">PA IYAT BROILER</div>
+              <div>Jl. Wr. Lobak, Gandasari, Kec. Katapang, Kabupaten Bandung, Jawa Barat 40921</div>
             </div>
             <div class="row">
               <span>Tgl: ${new Date(tx.date).toLocaleDateString('id-ID')}</span>
