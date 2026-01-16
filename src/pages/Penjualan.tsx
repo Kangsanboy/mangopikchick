@@ -7,11 +7,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"; // Penting buat Edit
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { SaleData, TABLE_NAMES } from "@/types/database";
-import { Plus, Loader2, ShoppingCart, Trash2, Save, Edit, DollarSign, CalendarDays } from "lucide-react";
+import { Plus, Loader2, ShoppingCart, Trash2, Save, CalendarDays } from "lucide-react";
 
 interface CustomerMaster {
   id: string;
@@ -25,7 +24,6 @@ interface ProductMaster {
   category: string;
 }
 
-// Tipe data keranjang
 interface CartItem {
   tempId: number;
   productName: string;
@@ -36,37 +34,36 @@ interface CartItem {
   totalPrice: number;
 }
 
+// Tipe data untuk Group Transaksi
+interface TransactionGroup {
+  id: string; // Menggunakan timestamp sebagai ID unik grup
+  customer_name: string;
+  date: string;
+  total_price: number;
+  items: SaleData[];
+}
+
 const Penjualan = () => {
   const { toast } = useToast();
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   
-  // Data Master & Sales
   const [products, setProducts] = useState<ProductMaster[]>([]);
   const [masterCustomers, setMasterCustomers] = useState<CustomerMaster[]>([]);
-  const [sales, setSales] = useState<SaleData[]>([]); // Data Riwayat
+  const [groupedSales, setGroupedSales] = useState<TransactionGroup[]>([]); // Data Grouped
   
-  // Form Input State
   const [customerName, setCustomerName] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<ProductMaster | null>(null);
   const [quantity, setQuantity] = useState("");
   const [weight, setWeight] = useState("");
   const [pricePerKg, setPricePerKg] = useState("");
 
-  // Cart & Loading
   const [cart, setCart] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Edit State
-  const [isEditOpen, setIsEditOpen] = useState(false);
-  const [editData, setEditData] = useState<SaleData | null>(null);
-  const [editLoading, setEditLoading] = useState(false);
-
-  // Load Awal
   useEffect(() => {
     loadMasterData();
   }, []);
 
-  // Load Riwayat saat tanggal berubah
   useEffect(() => {
     loadSalesHistory();
   }, [selectedDate]);
@@ -78,6 +75,7 @@ const Penjualan = () => {
     setMasterCustomers(cData || []);
   };
 
+  // --- LOGIKA LOAD & GROUPING DATA ---
   const loadSalesHistory = async () => {
     const { data, error } = await supabase
       .from(TABLE_NAMES.SALES)
@@ -85,10 +83,31 @@ const Penjualan = () => {
       .eq('date', selectedDate)
       .order('created_at', { ascending: false });
     
-    if (!error) setSales(data || []);
+    if (!error && data) {
+      // Grouping Logic: Gabungkan item berdasarkan created_at (waktu input)
+      const groups: { [key: string]: TransactionGroup } = {};
+      
+      data.forEach((item) => {
+        // Key pengelompokan: NamaCustomer + WaktuInput
+        const groupKey = `${item.customer_name}-${item.created_at}`;
+        
+        if (!groups[groupKey]) {
+          groups[groupKey] = {
+            id: groupKey,
+            customer_name: item.customer_name,
+            date: item.date,
+            total_price: 0,
+            items: []
+          };
+        }
+        groups[groupKey].items.push(item);
+        groups[groupKey].total_price += item.total_price;
+      });
+
+      setGroupedSales(Object.values(groups));
+    }
   };
 
-  // --- LOGIKA FORM & KERANJANG ---
   const handleProductChange = (pName: string) => {
     const prod = products.find(p => p.product_name === pName) || null;
     setSelectedProduct(prod);
@@ -139,6 +158,7 @@ const Penjualan = () => {
     setLoading(true);
 
     try {
+      const timestamp = new Date().toISOString(); // Waktu yang SAMA untuk semua item
       const salesPayload = cart.map(item => ({
         date: selectedDate,
         customer_name: customerName,
@@ -148,19 +168,17 @@ const Penjualan = () => {
         price_per_kg: item.pricePerKg,
         total_price: item.totalPrice,
         payment_status: 'Belum Lunas',
-        created_at: new Date().toISOString()
+        created_at: timestamp // Kunci grouping
       }));
 
       const { error } = await supabase.from(TABLE_NAMES.SALES).insert(salesPayload);
       if (error) throw error;
 
-      toast({ title: "Sukses!", description: `${cart.length} item berhasil disimpan.` });
+      toast({ title: "Sukses!", description: "Transaksi tersimpan." });
       
       setCart([]);
       setCustomerName("");
       setSelectedProduct(null);
-      
-      // Refresh Riwayat di Bawah
       loadSalesHistory();
 
     } catch (error: any) {
@@ -170,50 +188,26 @@ const Penjualan = () => {
     }
   };
 
-  // --- LOGIKA HAPUS & EDIT RIWAYAT ---
-  const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Hapus data penjualan "${name}"?`)) return;
+  // --- DELETE TRANSACTION GROUP ---
+  const handleDeleteGroup = async (group: TransactionGroup) => {
+    if (!confirm(`Hapus seluruh transaksi ${group.customer_name} (Rp ${formatCurrency(group.total_price)})?`)) return;
+    
+    // Ambil semua ID dalam grup ini
+    const idsToDelete = group.items.map(i => i.id);
+
     try {
-      const { error } = await supabase.from(TABLE_NAMES.SALES).delete().eq('id', id);
+      const { error } = await supabase.from(TABLE_NAMES.SALES).delete().in('id', idsToDelete);
       if (error) throw error;
-      toast({ title: "Dihapus", description: "Data berhasil dihapus" });
+      toast({ title: "Dihapus", description: "Seluruh item transaksi dihapus" });
       loadSalesHistory();
     } catch (error) {
       toast({ title: "Error", description: "Gagal hapus data", variant: "destructive" });
     }
   };
 
-  const openEditModal = (sale: SaleData) => {
-    setEditData({ ...sale });
-    setIsEditOpen(true);
-  };
-
-  const handleEditSave = async () => {
-    if (!editData) return;
-    setEditLoading(true);
-    try {
-      const newTotal = Math.round(editData.weight * editData.price_per_kg);
-      const { error } = await supabase.from(TABLE_NAMES.SALES).update({
-        quantity: editData.quantity,
-        weight: editData.weight,
-        price_per_kg: editData.price_per_kg,
-        total_price: newTotal
-      }).eq('id', editData.id);
-
-      if (error) throw error;
-      setIsEditOpen(false);
-      loadSalesHistory();
-      toast({ title: "Update Berhasil", description: "Data diperbarui" });
-    } catch (error) {
-      toast({ title: "Error", description: "Gagal update data", variant: "destructive" });
-    } finally {
-      setEditLoading(false);
-    }
-  };
-
   const formatCurrency = (val: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(val);
   const grandTotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);
-  const totalHariIni = sales.reduce((sum, s) => sum + s.total_price, 0);
+  const totalHariIni = groupedSales.reduce((sum, g) => sum + g.total_price, 0);
 
   return (
     <Layout>
@@ -245,7 +239,7 @@ const Penjualan = () => {
             <CardHeader className="pb-2">
               <CardTitle className="text-lg flex justify-between">
                 <span>Input Barang</span>
-                {selectedProduct && <Badge variant={selectedProduct.category === 'utuh' ? 'default' : 'secondary'}>{selectedProduct.category === 'utuh' ? 'Ayam Utuh' : 'Jeroan'}</Badge>}
+                {selectedProduct && <Badge>{selectedProduct.category === 'utuh' ? 'Ayam Utuh' : 'Jeroan'}</Badge>}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -305,7 +299,7 @@ const Penjualan = () => {
           </Card>
         )}
 
-        {/* 4. RIWAYAT PENJUALAN (YANG TADI HILANG) */}
+        {/* 4. RIWAYAT (GROUPED VIEW) */}
         <Card className="border-t-4 border-t-gray-500">
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
@@ -313,89 +307,51 @@ const Penjualan = () => {
               <Badge variant="outline" className="text-lg px-3 py-1 bg-gray-100">Total: {formatCurrency(totalHariIni)}</Badge>
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            {sales.length > 0 ? (
-              <div className="space-y-3">
-                {sales.map((sale) => (
-                  <div key={sale.id} className="p-4 bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-all">
-                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                      {/* Info Utama */}
-                      <div className="flex-1">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <h4 className="font-bold text-lg text-gray-900">{sale.customer_name}</h4>
-                            <div className="text-sm text-gray-500 flex items-center gap-2 mt-1">
-                              <Badge variant="secondary">{sale.product_type}</Badge>
-                              <span>• {sale.quantity} Ekor • {sale.weight} Kg</span>
-                            </div>
-                          </div>
-                          <div className="text-right md:hidden">
-                            <span className="font-bold text-green-700">{formatCurrency(sale.total_price)}</span>
-                          </div>
-                        </div>
-                        <div className="text-xs text-gray-400 mt-2">Harga: {formatCurrency(sale.price_per_kg)} / satuan</div>
-                      </div>
-
-                      {/* Harga & Tombol Aksi */}
-                      <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-end border-t md:border-t-0 pt-3 md:pt-0 mt-2 md:mt-0">
-                        <span className="font-bold text-xl text-green-700 hidden md:block">{formatCurrency(sale.total_price)}</span>
-                        
-                        <div className="flex gap-2">
-                          <Button size="icon" variant="outline" className="h-9 w-9 text-blue-600 hover:bg-blue-50" onClick={() => openEditModal(sale)}>
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button size="icon" variant="outline" className="h-9 w-9 text-red-600 hover:bg-red-50" onClick={() => handleDelete(sale.id, sale.customer_name)}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
+          <CardContent className="space-y-4">
+            {groupedSales.length > 0 ? (
+              groupedSales.map((group) => (
+                <div key={group.id} className="border rounded-lg p-4 bg-white shadow-sm">
+                  <div className="flex justify-between items-start mb-2">
+                    <h3 className="font-bold text-lg text-gray-900">{group.customer_name}</h3>
+                    <div className="text-right">
+                       <span className="block font-bold text-green-700 text-lg">{formatCurrency(group.total_price)}</span>
+                       <span className="text-xs text-gray-400">{new Date(group.items[0].created_at).toLocaleTimeString('id-ID')}</span>
                     </div>
                   </div>
-                ))}
-              </div>
+                  
+                  {/* List Item dalam 1 Transaksi */}
+                  <div className="bg-gray-50 rounded p-3 text-sm space-y-2">
+                    {group.items.map((item, idx) => (
+                      <div key={item.id} className="flex justify-between border-b border-gray-200 last:border-0 pb-1 last:pb-0">
+                         <span>
+                           <span className="font-medium">{item.product_type}</span> 
+                           <span className="text-gray-500 ml-1 text-xs">
+                             ({item.quantity > 0 ? `${item.quantity} ekor, ` : ''}{item.weight} Kg)
+                           </span>
+                         </span>
+                         <span className="text-gray-700">{formatCurrency(item.total_price)}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-3 flex justify-end">
+                    <Button 
+                      size="sm" 
+                      variant="destructive" 
+                      className="h-8 text-xs"
+                      onClick={() => handleDeleteGroup(group)}
+                    >
+                      <Trash2 className="h-3 w-3 mr-1" /> Hapus Transaksi
+                    </Button>
+                  </div>
+                </div>
+              ))
             ) : (
-              <div className="text-center py-10 text-gray-400">Belum ada data penjualan hari ini.</div>
+              <div className="text-center py-10 text-gray-400">Belum ada transaksi hari ini.</div>
             )}
           </CardContent>
         </Card>
       </div>
-
-      {/* MODAL EDIT DATA */}
-      <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Edit Data Penjualan</DialogTitle></DialogHeader>
-          {editData && (
-            <div className="space-y-4 py-2">
-              <div className="p-2 bg-blue-50 rounded text-sm text-blue-800 font-medium">
-                {editData.customer_name} - {editData.product_type}
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Jumlah Ekor</Label>
-                  <Input type="number" value={editData.quantity} onChange={(e) => setEditData({...editData, quantity: parseInt(e.target.value) || 0})} />
-                </div>
-                <div className="space-y-2">
-                  <Label>Berat (Kg/Pcs)</Label>
-                  <Input type="number" step="0.01" value={editData.weight} onChange={(e) => setEditData({...editData, weight: parseFloat(e.target.value) || 0})} />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>Harga Satuan</Label>
-                <Input type="number" value={editData.price_per_kg} onChange={(e) => setEditData({...editData, price_per_kg: parseFloat(e.target.value) || 0})} />
-              </div>
-              <div className="text-right font-bold text-gray-700 pt-2 border-t">
-                Total Baru: {formatCurrency(Math.round((editData.weight || 0) * (editData.price_per_kg || 0)))}
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditOpen(false)}>Batal</Button>
-            <Button onClick={handleEditSave} disabled={editLoading} className="bg-blue-600 hover:bg-blue-700">
-              {editLoading ? <Loader2 className="animate-spin" /> : "Simpan Perubahan"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </Layout>
   );
 };
