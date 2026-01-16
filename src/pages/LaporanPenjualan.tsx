@@ -10,8 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { SaleData, TABLE_NAMES } from "@/types/database";
-// PERBAIKAN DISINI: Menambahkan Loader2 yang tadi ketinggalan
-import { Download, Printer, Wallet, AlertCircle, Loader2 } from "lucide-react";
+import { Download, Printer, Wallet, AlertCircle, Loader2, Filter } from "lucide-react";
 
 interface ExtendedSaleData extends SaleData {
   payment_status?: string;
@@ -222,12 +221,27 @@ const LaporanPenjualan = () => {
           <Card className="bg-red-50 border-red-200 shadow-sm"><CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0"><CardTitle className="text-sm font-bold text-red-700">Total Piutang (Hutang)</CardTitle><AlertCircle className="h-4 w-4 text-red-600"/></CardHeader><CardContent><div className="text-2xl font-bold text-red-800">{formatCurrency(totalHutang)}</div><p className="text-xs text-red-600 mt-1">Uang belum dibayar</p></CardContent></Card>
         </div>
 
+        {/* --- CARD FILTER GANTENG --- */}
         <Card>
-          <CardContent className="p-4 grid grid-cols-1 md:grid-cols-4 gap-3">
-             <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
-             <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
-             <Input placeholder="Cari Pelanggan..." value={customerFilter} onChange={e => setCustomerFilter(e.target.value)} />
-             <Button variant="outline" onClick={() => {setStartDate(""); setEndDate(""); setCustomerFilter("")}}>Reset Filter</Button>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base text-gray-800">
+              <Filter className="h-4 w-4 text-gray-500" /> Filter Data Transaksi
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+             <div className="space-y-1">
+               <Label className="text-xs font-medium text-gray-500">Mulai Dari</Label>
+               <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+             </div>
+             <div className="space-y-1">
+               <Label className="text-xs font-medium text-gray-500">Sampai</Label>
+               <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
+             </div>
+             <div className="space-y-1">
+               <Label className="text-xs font-medium text-gray-500">Nama Pelanggan</Label>
+               <Input placeholder="Cari Pelanggan..." value={customerFilter} onChange={e => setCustomerFilter(e.target.value)} />
+             </div>
+             <Button variant="outline" className="w-full border-dashed" onClick={() => {setStartDate(""); setEndDate(""); setCustomerFilter("")}}>Reset Filter</Button>
           </CardContent>
         </Card>
 
