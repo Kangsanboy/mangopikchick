@@ -82,8 +82,8 @@ const Layout = ({
             </div>
             {sidebarOpen && (
               <div>
-                <h1 className="text-lg font-bold text-gray-900">Ayam Potong Gacor</h1>
-                <p className="text-sm text-gray-500">Sistem Penjualan</p>
+                <h1 className="text-lg font-bold text-gray-900">PA IYAT BROILER</h1>
+                <p className="text-sm text-gray-500">Sistem Penjualan Ayam</p>
               </div>
             )}
           </div>
