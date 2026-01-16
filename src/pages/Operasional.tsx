@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { CalendarDays, Plus, Loader2, Trash2, Wallet } from "lucide-react";
+import { Plus, Loader2, Trash2, Wallet } from "lucide-react";
 
 interface ExpenseData {
   id: string;
@@ -42,6 +42,17 @@ const Operasional = () => {
   const loadExpenses = async () => {
     const { data } = await supabase.from('operational_expenses').select('*').eq('date', selectedDate).order('created_at', { ascending: false });
     setExpenses(data || []);
+  };
+
+  // Saat kategori dipilih, otomatis isi harga default
+  const handleCategoryChange = (name: string) => {
+    setCatName(name);
+    const selected = categories.find(c => c.name === name);
+    if (selected && selected.default_amount) {
+      setAmount(selected.default_amount.toString());
+    } else {
+      setAmount("");
+    }
   };
 
   const addExpense = async () => {
@@ -92,7 +103,7 @@ const Operasional = () => {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
               <div>
                 <Label>Kategori</Label>
-                <Select value={catName} onValueChange={setCatName}>
+                <Select value={catName} onValueChange={handleCategoryChange}>
                   <SelectTrigger><SelectValue placeholder="Pilih Kategori" /></SelectTrigger>
                   <SelectContent>
                     {categories.map(c => <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>)}
