@@ -66,23 +66,20 @@ const Penjualan = () => {
     setMasterCustomers(cData || []);
   };
 
-  // Saat pilih pelanggan
   const handleCustomerChange = (name: string) => {
     setCustomerName(name);
   };
 
-  // Saat pilih produk
   const handleProductChange = (pName: string) => {
     const prod = products.find(p => p.product_name === pName) || null;
     setSelectedProduct(prod);
     
     if (prod) {
       setPricePerKg(prod.price_per_kg.toString());
-      // Reset inputan biar bersih
       setQuantity("");
       setWeight("");
       
-      // Auto fill quantity jika Ayam Utuh dan ada default dari pelanggan
+      // Auto fill quantity HANYA jika kategori 'utuh' (jeroan tidak perlu ekor)
       if (prod.category === 'utuh' && customerName) {
         const cust = masterCustomers.find(c => c.customer_name === customerName);
         if (cust && cust.default_quantity) setQuantity(cust.default_quantity.toString());
@@ -90,7 +87,6 @@ const Penjualan = () => {
     }
   };
 
-  // Masukkan ke Keranjang
   const addToCart = () => {
     if (!selectedProduct) return;
     
@@ -98,13 +94,11 @@ const Penjualan = () => {
     const weightNum = weight ? parseFloat(weight) : 0;
     const priceNum = pricePerKg ? parseFloat(pricePerKg) : 0;
     
-    // Validasi sederhana
     if (!weightNum && !qtyNum) {
       toast({ title: "Gagal", description: "Masukkan Berat atau Jumlah", variant: "destructive" });
       return;
     }
 
-    // Hitung Total per item
     const total = Math.round(weightNum * priceNum); 
 
     const newItem: CartItem = {
@@ -119,29 +113,26 @@ const Penjualan = () => {
 
     setCart([...cart, newItem]);
     
-    // Reset Input Produk (Pelanggan tetap)
+    // Reset Input Produk
     setSelectedProduct(null);
     setQuantity("");
     setWeight("");
     setPricePerKg("");
   };
 
-  // Hapus dari keranjang
   const removeFromCart = (tempId: number) => {
     setCart(cart.filter(item => item.tempId !== tempId));
   };
 
-  // Simpan Transaksi (Semua isi keranjang)
   const submitTransaction = async () => {
     if (!customerName || cart.length === 0) return;
     setLoading(true);
 
     try {
-      // Siapkan data untuk di-insert sekaligus
       const salesPayload = cart.map(item => ({
         date: selectedDate,
         customer_name: customerName,
-        product_type: item.productName, // Nama produk
+        product_type: item.productName,
         quantity: item.quantity,
         weight: item.weight,
         price_per_kg: item.pricePerKg,
@@ -155,7 +146,6 @@ const Penjualan = () => {
 
       toast({ title: "Sukses!", description: `${cart.length} item berhasil disimpan.` });
       
-      // Reset Total
       setCart([]);
       setCustomerName("");
       setSelectedProduct(null);
@@ -167,8 +157,6 @@ const Penjualan = () => {
   };
 
   const formatCurrency = (val: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(val);
-
-  // Hitung Grand Total Keranjang
   const grandTotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);
 
   return (
@@ -176,7 +164,6 @@ const Penjualan = () => {
       <div className="space-y-6">
         <h1 className="text-3xl font-bold text-gray-900">Penjualan (Kasir)</h1>
 
-        {/* 1. Pilih Tanggal & Pelanggan */}
         <Card>
           <CardContent className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
@@ -199,17 +186,20 @@ const Penjualan = () => {
           </CardContent>
         </Card>
 
-        {/* 2. Input Produk (Hanya muncul jika pelanggan dipilih) */}
         {customerName && (
           <Card className="border-t-4 border-t-purple-500 shadow-md">
             <CardHeader className="pb-2">
               <CardTitle className="text-lg flex justify-between">
                 <span>Input Barang Belanjaan</span>
-                {selectedProduct && <Badge>{selectedProduct.category === 'utuh' ? 'Ayam Utuh' : 'Jeroan / Parts'}</Badge>}
+                {/* Badge Kategori tetap ada di sini biar kasir tau ini jenis apa, tapi di dropdown pilihan sudah bersih */}
+                {selectedProduct && (
+                  <Badge variant={selectedProduct.category === 'utuh' ? 'default' : 'secondary'}>
+                    {selectedProduct.category === 'utuh' ? 'Ayam Utuh' : 'Jeroan / Parts'}
+                  </Badge>
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Pilih Produk */}
               <div>
                 <Label>Pilih Produk</Label>
                 <Select value={selectedProduct?.product_name || ""} onValueChange={handleProductChange}>
@@ -220,19 +210,18 @@ const Penjualan = () => {
                     {products.map(p => (
                       <SelectItem key={p.id} value={p.product_name}>
                         {p.product_name} 
-                        <span className="text-gray-400 text-xs ml-2">({p.category})</span>
+                        {/* Saya hapus bagian ({p.category}) disini sesuai request */}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
 
-              {/* Inputan Dinamis (Muncul setelah produk dipilih) */}
               {selectedProduct && (
                 <div className="bg-purple-50 p-4 rounded-lg space-y-4 animate-in fade-in slide-in-from-top-2">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     
-                    {/* INPUT JUMLAH EKOR (Hanya untuk Ayam Utuh) */}
+                    {/* INPUT JUMLAH EKOR (Hanya muncul jika kategori 'utuh') */}
                     {selectedProduct.category === 'utuh' && (
                       <div>
                         <Label>Jumlah Ekor</Label>
@@ -247,22 +236,18 @@ const Penjualan = () => {
                       </div>
                     )}
 
-                    {/* INPUT BERAT (Untuk Semua) */}
                     <div>
-                      <Label>
-                        {selectedProduct.category === 'jeroan' ? "Berat Total (Kg/Pcs)" : "Berat Total (Kg)"}
-                      </Label>
+                      <Label>{selectedProduct.category === 'jeroan' ? "Berat (Kg/Pcs)" : "Berat Total (Kg)"}</Label>
                       <Input 
                         type="number" 
                         step="0.01" 
-                        placeholder={selectedProduct.category === 'jeroan' ? "Kg atau Jumlah Pcs" : "Kg"}
+                        placeholder={selectedProduct.category === 'jeroan' ? "Kg atau Pcs" : "Kg"}
                         value={weight} 
                         onChange={e => setWeight(e.target.value)}
                         className="bg-white" 
                       />
                     </div>
 
-                    {/* INPUT HARGA (Otomatis terisi tapi bisa diedit) */}
                     <div>
                       <Label>Harga per Satuan</Label>
                       <Input 
@@ -274,7 +259,6 @@ const Penjualan = () => {
                     </div>
                   </div>
 
-                  {/* Tombol Tambah ke Keranjang */}
                   <Button onClick={addToCart} className="w-full bg-purple-600 hover:bg-purple-700">
                     <Plus className="mr-2 h-4 w-4" /> Masukkan Keranjang
                   </Button>
@@ -284,7 +268,6 @@ const Penjualan = () => {
           </Card>
         )}
 
-        {/* 3. Keranjang Belanja (Muncul jika ada isinya) */}
         {cart.length > 0 && (
           <Card className="border-green-200 bg-green-50/50">
             <CardHeader>
@@ -309,9 +292,7 @@ const Penjualan = () => {
                     {cart.map((item) => (
                       <tr key={item.tempId} className="border-b last:border-0 hover:bg-gray-50">
                         <td className="p-3 font-medium">{item.productName}</td>
-                        <td className="p-3 text-center">
-                          {item.productType === 'utuh' ? `${item.quantity} ekor` : '-'}
-                        </td>
+                        <td className="p-3 text-center">{item.productType === 'utuh' ? `${item.quantity} ekor` : '-'}</td>
                         <td className="p-3 text-center">{item.weight}</td>
                         <td className="p-3 text-right">{formatCurrency(item.pricePerKg)}</td>
                         <td className="p-3 text-right font-bold">{formatCurrency(item.totalPrice)}</td>
@@ -332,22 +313,20 @@ const Penjualan = () => {
                   </tfoot>
                 </table>
               </div>
-
               <div className="mt-6 flex justify-end">
                 <Button 
                   size="lg" 
                   onClick={submitTransaction} 
                   disabled={loading}
-                  className="bg-green-600 hover:bg-green-700 font-bold shadow-lg transform active:scale-95 transition-all"
+                  className="bg-green-600 hover:bg-green-700 font-bold shadow-lg"
                 >
                   {loading ? <Loader2 className="animate-spin mr-2"/> : <Save className="mr-2 h-5 w-5" />}
-                  SIMPAN TRANSAKSI SEKARANG
+                  SIMPAN TRANSAKSI
                 </Button>
               </div>
             </CardContent>
           </Card>
         )}
-        
       </div>
     </Layout>
   );
