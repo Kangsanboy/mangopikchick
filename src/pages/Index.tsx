@@ -5,55 +5,33 @@ import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { PreorderData, PurchaseData, SaleData, TABLE_NAMES } from "@/types/database";
 import { 
-  TrendingUp, 
-  TrendingDown, 
-  Users, 
-  ShoppingCart, 
-  Package,
-  Loader2,
-  Wallet, // Icon untuk Operasional
-  Activity // Icon untuk Gaji Bersih
+  TrendingUp, Users, ShoppingCart, Package, Loader2, 
+  Wallet, Activity, DollarSign 
 } from "lucide-react";
 
 const Index = () => {
   const [preorders, setPreorders] = useState<PreorderData[]>([]);
   const [purchases, setPurchases] = useState<PurchaseData[]>([]);
   const [sales, setSales] = useState<SaleData[]>([]);
-  const [expenses, setExpenses] = useState<any[]>([]); // State untuk Pengeluaran
+  const [expenses, setExpenses] = useState<any[]>([]); // State Pengeluaran
   const [loading, setLoading] = useState(true);
 
-  // Get today's date in YYYY-MM-DD format
+  // Get today's date
   const today = new Date().toISOString().split('T')[0];
 
-  // Load data from Supabase
   useEffect(() => {
     const loadData = async () => {
       try {
         setLoading(true);
         
-        // 1. Load preorders
-        const { data: preordersData } = await supabase
-          .from(TABLE_NAMES.PREORDERS)
-          .select('*')
-          .order('date', { ascending: false });
-        
-        // 2. Load purchases
-        const { data: purchasesData } = await supabase
-          .from(TABLE_NAMES.PURCHASES)
-          .select('*')
-          .order('date', { ascending: false });
-        
-        // 3. Load sales
-        const { data: salesData } = await supabase
-          .from(TABLE_NAMES.SALES)
-          .select('*')
-          .order('date', { ascending: false });
-
-        // 4. Load Operational Expenses (BARU)
-        const { data: expensesData } = await supabase
-          .from('operational_expenses')
-          .select('*')
-          .eq('date', today); // Ambil yang hari ini saja
+        // 1. Preorders
+        const { data: preordersData } = await supabase.from(TABLE_NAMES.PREORDERS).select('*').order('date', { ascending: false });
+        // 2. Purchases
+        const { data: purchasesData } = await supabase.from(TABLE_NAMES.PURCHASES).select('*').order('date', { ascending: false });
+        // 3. Sales
+        const { data: salesData } = await supabase.from(TABLE_NAMES.SALES).select('*').order('date', { ascending: false });
+        // 4. Expenses
+        const { data: expensesData } = await supabase.from('operational_expenses').select('*').order('date', { ascending: false });
         
         setPreorders(preordersData || []);
         setPurchases(purchasesData || []);
@@ -66,49 +44,35 @@ const Index = () => {
         setLoading(false);
       }
     };
-
     loadData();
   }, []);
 
-  // Filter today's data
+  // Filter Today Data
   const todayPreorders = preorders.filter(item => item.date === today);
   const todayPurchases = purchases.filter(item => item.date === today);
   const todaySales = sales.filter(item => item.date === today);
+  const todayExpenses = expenses.filter(item => item.date === today);
 
-  // Calculate totals
-  const totalPreorderQuantity = todayPreorders.reduce((sum, item) => sum + item.quantity, 0);
+  // Totals Calculation
+  const totalPreorderQty = todayPreorders.reduce((sum, item) => sum + item.quantity, 0);
   
-  const totalPurchaseQuantity = todayPurchases.reduce((sum, item) => sum + item.quantity, 0);
+  const totalPurchaseQty = todayPurchases.reduce((sum, item) => sum + item.quantity, 0);
   const totalPurchaseWeight = todayPurchases.reduce((sum, item) => sum + item.weight, 0);
-  const totalPurchasePrice = todayPurchases.reduce((sum, item) => sum + item.total_price, 0); // Modal Ayam
+  const totalPurchasePrice = todayPurchases.reduce((sum, item) => sum + item.total_price, 0); // Modal
   
-  const totalSalesQuantity = todaySales.reduce((sum, item) => sum + (item.quantity || 0), 0);
+  const totalSalesQty = todaySales.reduce((sum, item) => sum + (item.quantity || 0), 0);
   const totalSalesPrice = todaySales.reduce((sum, item) => sum + item.total_price, 0); // Omzet
 
-  const totalOperational = expenses.reduce((sum, item) => sum + item.amount, 0); // Total Biaya Operasional
+  const totalOperational = todayExpenses.reduce((sum, item) => sum + item.amount, 0); // Biaya Ops
 
-  // Calculate stock difference (purchased - sold)
-  const stockDifference = totalPurchaseQuantity - totalSalesQuantity;
-  const isStockPositive = stockDifference >= 0;
-
-  // --- LOGIKA PROFIT BARU ---
-  // Gaji Kotor = Penjualan - Modal Beli Ayam
+  // Profit Logic
   const grossProfit = totalSalesPrice - totalPurchasePrice;
-  
-  // Gaji Bersih = Gaji Kotor - Biaya Operasional
   const netProfit = grossProfit - totalOperational;
+  
+  const isStockPositive = (totalPurchaseQty - totalSalesQty) >= 0;
+  const stockDiff = Math.abs(totalPurchaseQty - totalSalesQty);
 
-  const isGrossProfitable = grossProfit >= 0;
-  const isNetProfitable = netProfit >= 0;
-
-  // Format currency
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('id-ID', {
-      style: 'currency',
-      currency: 'IDR',
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
+  const formatCurrency = (amount: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount);
 
   return (
     <Layout>
@@ -117,57 +81,46 @@ const Index = () => {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-            <p className="text-gray-600 mt-1">
-              Monitoring hari ini - {new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-            </p>
+            <p className="text-gray-600 mt-1">Monitoring hari ini - {new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
           </div>
-          {loading && (
-            <div className="flex items-center gap-2 text-gray-600">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="text-sm">Memuat data...</span>
-            </div>
-          )}
+          {loading && <div className="flex items-center gap-2 text-gray-600"><Loader2 className="h-4 w-4 animate-spin" /><span className="text-sm">Memuat data...</span></div>}
         </div>
 
-        {/* --- ROW 1: STATUS HARIAN --- */}
+        {/* --- ROW 1: KARTU UTAMA --- */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {/* Preorder */}
           <Card className="bg-blue-50 border-blue-100">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium text-blue-700">Preorder Masuk</CardTitle>
               <Users className="h-4 w-4 text-blue-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-900">{totalPreorderQuantity} Ekor</div>
+              <div className="text-2xl font-bold text-blue-900">{totalPreorderQty} Ekor</div>
               <p className="text-xs text-blue-600 mt-1">{todayPreorders.length} pelanggan</p>
             </CardContent>
           </Card>
 
-          {/* Pembelian */}
           <Card className="bg-green-50 border-green-100">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium text-green-700">Pembelian (Stok)</CardTitle>
               <ShoppingCart className="h-4 w-4 text-green-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-900">{totalPurchaseQuantity} Ekor</div>
+              <div className="text-2xl font-bold text-green-900">{totalPurchaseQty} Ekor</div>
               <p className="text-xs text-green-600 mt-1">{totalPurchaseWeight.toFixed(1)} Kg</p>
             </CardContent>
           </Card>
 
-          {/* Penjualan */}
           <Card className="bg-purple-50 border-purple-100">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-purple-700">Penjualan Hari Ini</CardTitle>
+              <CardTitle className="text-sm font-medium text-purple-700">Penjualan</CardTitle>
               <Package className="h-4 w-4 text-purple-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-purple-900">{totalSalesQuantity} Ekor</div>
+              <div className="text-2xl font-bold text-purple-900">{totalSalesQty} Ekor</div>
               <p className="text-xs text-purple-600 mt-1">{formatCurrency(totalSalesPrice)}</p>
             </CardContent>
           </Card>
 
-          {/* Operasional (NEW) */}
           <Card className="bg-orange-50 border-orange-100">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium text-orange-700">Biaya Operasional</CardTitle>
@@ -175,59 +128,97 @@ const Index = () => {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-orange-900">{formatCurrency(totalOperational)}</div>
-              <p className="text-xs text-orange-600 mt-1">Gaji, Rokok, Plastik, dll</p>
+              <p className="text-xs text-orange-600 mt-1">Total Pengeluaran Hari Ini</p>
             </CardContent>
           </Card>
         </div>
 
-        {/* --- ROW 2: ANALISIS KEUNTUNGAN & STOK --- */}
+        {/* --- ROW 2: ANALISIS PROFIT --- */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          
-          {/* Card 1: Selisih Stok */}
           <Card className={`bg-gradient-to-br ${isStockPositive ? 'from-gray-50 to-gray-100 border-gray-200' : 'from-red-50 to-red-100 border-red-200'}`}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className={`text-sm font-medium ${isStockPositive ? 'text-gray-700' : 'text-red-700'}`}>Selisih Stok</CardTitle>
               <Package className={`h-4 w-4 ${isStockPositive ? 'text-gray-600' : 'text-red-600'}`} />
             </CardHeader>
             <CardContent>
-              <div className={`text-2xl font-bold ${isStockPositive ? 'text-gray-900' : 'text-red-900'}`}>
-                {Math.abs(stockDifference)} Ekor
-              </div>
-              <Badge variant={isStockPositive ? "secondary" : "destructive"} className="mt-1">
-                {isStockPositive ? "Sisa Stok" : "Kurang Stok / Input Salah"}
-              </Badge>
+              <div className={`text-2xl font-bold ${isStockPositive ? 'text-gray-900' : 'text-red-900'}`}>{stockDiff} Ekor</div>
+              <Badge variant={isStockPositive ? "secondary" : "destructive"} className="mt-1">{isStockPositive ? "Sisa Stok" : "Kurang Stok / Input Salah"}</Badge>
             </CardContent>
           </Card>
 
-          {/* Card 2: Gaji Kotor (Gross Profit) */}
-          <Card className={`bg-gradient-to-br ${isGrossProfitable ? 'from-emerald-50 to-emerald-100 border-emerald-200' : 'from-red-50 to-red-100 border-red-200'}`}>
+          <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100 border-emerald-200">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className={`text-sm font-bold ${isGrossProfitable ? 'text-emerald-700' : 'text-red-700'}`}>
-                Gaji Kotor
-              </CardTitle>
-              <TrendingUp className={`h-4 w-4 ${isGrossProfitable ? 'text-emerald-600' : 'text-red-600'}`} />
+              <CardTitle className="text-sm font-bold text-emerald-700">Gaji Kotor</CardTitle>
+              <TrendingUp className="h-4 w-4 text-emerald-600" />
             </CardHeader>
             <CardContent>
-              <div className={`text-2xl font-bold ${isGrossProfitable ? 'text-emerald-900' : 'text-red-900'}`}>
-                {formatCurrency(grossProfit)}
-              </div>
+              <div className="text-2xl font-bold text-emerald-900">{formatCurrency(grossProfit)}</div>
               <p className="text-xs text-gray-500 mt-1">Penjualan - Modal Ayam</p>
             </CardContent>
           </Card>
 
-          {/* Card 3: Gaji Bersih (Net Profit) - PALING PENTING */}
-          <Card className={`bg-gradient-to-br ${isNetProfitable ? 'from-blue-50 to-blue-100 border-blue-200' : 'from-red-50 to-red-100 border-red-200'} shadow-md`}>
+          <Card className={`bg-gradient-to-br ${netProfit >= 0 ? 'from-blue-50 to-blue-100 border-blue-200' : 'from-red-50 to-red-100 border-red-200'} shadow-md`}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className={`text-sm font-bold ${isNetProfitable ? 'text-blue-700' : 'text-red-700'}`}>
-                Gaji Bersih (Real)
-              </CardTitle>
-              <Activity className={`h-4 w-4 ${isNetProfitable ? 'text-blue-600' : 'text-red-600'}`} />
+              <CardTitle className={`text-sm font-bold ${netProfit >= 0 ? 'text-blue-700' : 'text-red-700'}`}>Gaji Bersih (Real)</CardTitle>
+              <Activity className={`h-4 w-4 ${netProfit >= 0 ? 'text-blue-600' : 'text-red-600'}`} />
             </CardHeader>
             <CardContent>
-              <div className={`text-2xl font-bold ${isNetProfitable ? 'text-blue-900' : 'text-red-900'}`}>
-                {formatCurrency(netProfit)}
-              </div>
+              <div className={`text-2xl font-bold ${netProfit >= 0 ? 'text-blue-900' : 'text-red-900'}`}>{formatCurrency(netProfit)}</div>
               <p className="text-xs text-gray-500 mt-1">Gaji Kotor - Operasional</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* --- ROW 3: DETAIL TABEL MONITORING (YANG HILANG DIKEMBALIKAN) --- */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          
+          {/* TABEL PREORDER */}
+          <Card>
+            <CardHeader><CardTitle className="flex items-center gap-2 text-sm"><Users className="h-4 w-4"/> Data Preorder Hari Ini</CardTitle></CardHeader>
+            <CardContent className="space-y-2">
+              {todayPreorders.length > 0 ? todayPreorders.map(p => (
+                <div key={p.id} className="flex justify-between p-2 bg-gray-50 rounded text-sm">
+                  <span className="font-medium">{p.customer_name}</span><span>{p.quantity} ekor</span>
+                </div>
+              )) : <p className="text-gray-400 text-sm text-center py-2">Tidak ada preorder</p>}
+            </CardContent>
+          </Card>
+
+          {/* TABEL PEMBELIAN */}
+          <Card>
+            <CardHeader><CardTitle className="flex items-center gap-2 text-sm"><ShoppingCart className="h-4 w-4"/> Data Pembelian Hari Ini</CardTitle></CardHeader>
+            <CardContent className="space-y-2">
+              {todayPurchases.length > 0 ? todayPurchases.map(p => (
+                <div key={p.id} className="flex justify-between p-2 bg-gray-50 rounded text-sm">
+                  <span>{p.product_type}</span><span>{p.quantity} ekor / {p.weight} kg</span>
+                </div>
+              )) : <p className="text-gray-400 text-sm text-center py-2">Tidak ada pembelian</p>}
+            </CardContent>
+          </Card>
+
+          {/* TABEL PENJUALAN */}
+          <Card>
+            <CardHeader><CardTitle className="flex items-center gap-2 text-sm"><DollarSign className="h-4 w-4"/> Data Penjualan Hari Ini</CardTitle></CardHeader>
+            <CardContent className="space-y-2">
+              {todaySales.length > 0 ? todaySales.map(s => (
+                <div key={s.id} className="flex justify-between p-2 bg-gray-50 rounded text-sm">
+                  <span className="font-medium">{s.customer_name}</span>
+                  <span className="text-green-600 font-bold">{formatCurrency(s.total_price)}</span>
+                </div>
+              )) : <p className="text-gray-400 text-sm text-center py-2">Tidak ada penjualan</p>}
+            </CardContent>
+          </Card>
+
+          {/* TABEL OPERASIONAL (BARU) */}
+          <Card>
+            <CardHeader><CardTitle className="flex items-center gap-2 text-sm text-orange-700"><Wallet className="h-4 w-4"/> Data Operasional Hari Ini</CardTitle></CardHeader>
+            <CardContent className="space-y-2">
+              {todayExpenses.length > 0 ? todayExpenses.map(e => (
+                <div key={e.id} className="flex justify-between p-2 bg-orange-50 rounded text-sm border border-orange-100">
+                  <span className="font-medium text-orange-900">{e.category_name} <span className="text-xs text-gray-500">({e.note})</span></span>
+                  <span className="text-orange-700 font-bold">{formatCurrency(e.amount)}</span>
+                </div>
+              )) : <p className="text-gray-400 text-sm text-center py-2">Tidak ada pengeluaran</p>}
             </CardContent>
           </Card>
 
