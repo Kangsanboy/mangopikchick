@@ -12,7 +12,8 @@ import { CalendarDays, Plus, Loader2, Users } from "lucide-react";
 
 const Preorder = () => {
   const { toast } = useToast();
-  const [date, setDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }));
+  // PERBAIKAN: Pakai nama 'selectedDate' dan Waktu WIB
+  const [selectedDate, setSelectedDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }));
   const [loading, setLoading] = useState(false);
   
   // Form states
@@ -65,7 +66,7 @@ const Preorder = () => {
         .insert({
           customer_name: customerName.trim(),
           quantity: parseInt(quantity),
-          date: selectedDate,
+          date: selectedDate, // Pakai selectedDate
         });
 
       if (error) throw error;
