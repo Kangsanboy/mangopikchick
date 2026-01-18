@@ -19,7 +19,8 @@ interface ExpenseData {
 
 const Operasional = () => {
   const { toast } = useToast();
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  // PERBAIKAN: Default WIB
+  const [selectedDate, setSelectedDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }));
   const [loading, setLoading] = useState(false);
   
   const [categories, setCategories] = useState<any[]>([]);
@@ -33,23 +34,18 @@ const Operasional = () => {
   useEffect(() => { loadExpenses(); }, [selectedDate]);
 
   const loadCategories = async () => {
-    // Ensure table 'expense_categories' exists or handle error gracefully
     const { data, error } = await supabase.from('expense_categories').select('*').eq('is_active', true).order('name');
     if (!error) setCategories(data || []);
   };
 
   const loadExpenses = async () => {
-    // This is where your 404 was coming from if the table didn't exist
     const { data, error } = await supabase
       .from('operational_expenses')
       .select('*')
       .eq('date', selectedDate)
       .order('created_at', { ascending: false });
       
-    if (error) {
-      console.error("Error loading expenses:", error);
-      // Optional: don't show toast on 404 to avoid spamming user if table is missing during dev
-    } else {
+    if (!error) {
       setExpenses(data || []);
     }
   };
@@ -111,21 +107,12 @@ const Operasional = () => {
   return (
     <Layout>
       <div className="space-y-6">
-        {/* Header */}
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Operasional</h1>
-            <p className="text-gray-600 mt-1">Catat biaya operasional harian</p>
-          </div>
+          <div><h1 className="text-3xl font-bold text-gray-900">Operasional</h1><p className="text-gray-600 mt-1">Catat biaya operasional harian</p></div>
         </div>
 
-        {/* Card Input */}
         <Card>
-          <CardHeader>
-            <CardTitle className="text-orange-700 flex items-center gap-2">
-              <Plus className="h-5 w-5" /> Input Pengeluaran
-            </CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="text-orange-700 flex items-center gap-2"><Plus className="h-5 w-5" /> Input Pengeluaran</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center gap-4 p-3 bg-orange-50 rounded-lg border border-orange-100">
               <CalendarDays className="h-5 w-5 text-orange-600" />
@@ -138,19 +125,11 @@ const Operasional = () => {
                 <Label>Kategori</Label>
                 <Select value={catName} onValueChange={handleCategoryChange}>
                   <SelectTrigger><SelectValue placeholder="Pilih Kategori" /></SelectTrigger>
-                  <SelectContent>
-                    {categories.map(c => <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>)}
-                  </SelectContent>
+                  <SelectContent>{categories.map(c => <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
-              <div className="md:col-span-2">
-                <Label>Keterangan (Opsional)</Label>
-                <Input placeholder="Contoh: Beli bensin, Rokok Surya 1 slop" value={note} onChange={e => setNote(e.target.value)} />
-              </div>
-              <div>
-                <Label>Nominal (Rp)</Label>
-                <Input type="number" placeholder="0" value={amount} onChange={e => setAmount(e.target.value)} />
-              </div>
+              <div className="md:col-span-2"><Label>Keterangan (Opsional)</Label><Input placeholder="Contoh: Beli bensin, Rokok Surya 1 slop" value={note} onChange={e => setNote(e.target.value)} /></div>
+              <div><Label>Nominal (Rp)</Label><Input type="number" placeholder="0" value={amount} onChange={e => setAmount(e.target.value)} /></div>
             </div>
             <Button onClick={addExpense} disabled={loading} className="w-full mt-4 bg-orange-600 hover:bg-orange-700">
               {loading ? <Loader2 className="animate-spin mr-2"/> : <Plus className="mr-2 h-4 w-4"/>} Simpan Pengeluaran
@@ -158,53 +137,31 @@ const Operasional = () => {
           </CardContent>
         </Card>
 
-        {/* Card Riwayat dengan Summary Box Ganteng */}
         <Card>
-          <CardHeader>
-            <CardTitle className="flex gap-2 text-gray-800">
-              <Wallet className="h-5 w-5 text-orange-600"/> Riwayat {new Date(selectedDate).toLocaleDateString('id-ID')}
-            </CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="flex gap-2 text-gray-800"><Wallet className="h-5 w-5 text-orange-600"/> Riwayat {new Date(selectedDate).toLocaleDateString('id-ID')}</CardTitle></CardHeader>
           <CardContent>
             {expenses.length > 0 ? (
               <div className="space-y-4">
-                {/* List Item */}
                 <div className="space-y-2">
                   {expenses.map((e) => (
                     <div key={e.id} className="flex items-center justify-between p-3 bg-white border rounded-lg hover:shadow-sm transition-all">
-                      <div>
-                        <p className="font-bold text-gray-800">{e.category_name}</p>
-                        <p className="text-sm text-gray-500">{e.note || "-"}</p>
-                      </div>
+                      <div><p className="font-bold text-gray-800">{e.category_name}</p><p className="text-sm text-gray-500">{e.note || "-"}</p></div>
                       <div className="flex items-center gap-4">
                         <span className="font-bold text-orange-700">{formatRp(e.amount)}</span>
-                        <Button size="icon" variant="outline" className="h-8 w-8 text-red-500 hover:bg-red-50 border-red-200" onClick={() => deleteExpense(e.id)}>
-                          <Trash2 className="h-4 w-4"/>
-                        </Button>
+                        <Button size="icon" variant="outline" className="h-8 w-8 text-red-500 hover:bg-red-50 border-red-200" onClick={() => deleteExpense(e.id)}><Trash2 className="h-4 w-4"/></Button>
                       </div>
                     </div>
                   ))}
                 </div>
-
                 <Separator />
-
-                {/* SUMMARY BOX (Bagian Bawah) */}
                 <div className="p-4 bg-orange-50 border border-orange-100 rounded-lg">
                   <div className="flex justify-between items-center text-orange-900">
-                    <div>
-                      <p className="text-sm text-orange-600">Total Transaksi</p>
-                      <p className="font-bold text-xl">{expenses.length} item</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm text-orange-600">Total Pengeluaran</p>
-                      <p className="font-bold text-2xl">{formatRp(totalExpense)}</p>
-                    </div>
+                    <div><p className="text-sm text-orange-600">Total Transaksi</p><p className="font-bold text-xl">{expenses.length} item</p></div>
+                    <div className="text-right"><p className="text-sm text-orange-600">Total Pengeluaran</p><p className="font-bold text-2xl">{formatRp(totalExpense)}</p></div>
                   </div>
                 </div>
               </div>
-            ) : (
-              <p className="text-center py-10 text-gray-400 bg-gray-50 rounded-lg border border-dashed">Belum ada pengeluaran hari ini.</p>
-            )}
+            ) : (<p className="text-center py-10 text-gray-400 bg-gray-50 rounded-lg border border-dashed">Belum ada pengeluaran hari ini.</p>)}
           </CardContent>
         </Card>
       </div>
