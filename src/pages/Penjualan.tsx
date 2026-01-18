@@ -28,7 +28,7 @@ interface ExtendedSaleData extends SaleData { unit_type?: string; } // Tambah ti
 
 const Penjualan = () => {
   const { toast } = useToast();
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
   
   const [products, setProducts] = useState<ProductMaster[]>([]);
   const [masterCustomers, setMasterCustomers] = useState<CustomerMaster[]>([]);
