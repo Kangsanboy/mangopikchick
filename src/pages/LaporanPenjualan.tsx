@@ -12,9 +12,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { SaleData, TABLE_NAMES } from "@/types/database";
 import { Download, Printer, Wallet, AlertCircle, Loader2, Filter } from "lucide-react";
 
+// UPDATE: Tambah unit_type di sini biar terbaca
 interface ExtendedSaleData extends SaleData {
   payment_status?: string;
   amount_paid?: number;
+  unit_type?: string; 
 }
 
 interface GroupedTransaction {
@@ -112,7 +114,6 @@ const LaporanPenjualan = () => {
   const handlePrint = (tx: GroupedTransaction) => {
     const sisaNotaIni = Math.max(0, tx.total_price - tx.total_paid);
     
-    // HITUNG HUTANG LAMA
     const hutangLama = groupedTransactions
       .filter(t => 
         t.customer_name === tx.customer_name && 
@@ -123,13 +124,30 @@ const LaporanPenjualan = () => {
 
     const totalTagihan = sisaNotaIni + hutangLama;
 
-    const itemsHtml = tx.items.map(item => `
+    // --- LOGIKA BARU UNTUK TAMPILAN PCS vs KG ---
+    const itemsHtml = tx.items.map(item => {
+      // Cek apakah barang ini Pcs (Ati/Ceker) atau Kiloan (Ayam)
+      // Logikanya: Kalau unit_type = 'pcs' ATAU beratnya 0 tapi qty > 0
+      const isPcs = item.unit_type === 'pcs' || (item.weight === 0 && item.quantity > 0);
+      
+      let detailText = "";
+      if (isPcs) {
+        // Tampilan Pcs: "200 Pcs @Rp 1.500"
+        detailText = `${item.quantity} Pcs @${formatCurrency(item.price_per_kg)}`;
+      } else {
+        // Tampilan Kiloan: "100 ekor x 200 Kg @Rp 28.500"
+        const qtyPrefix = item.quantity > 0 ? `${item.quantity} ekor x ` : '';
+        detailText = `${qtyPrefix}${item.weight} Kg @${formatCurrency(item.price_per_kg)}`;
+      }
+
+      return `
       <div style="margin-bottom: 4px; border-bottom: 1px dotted #ccc; padding-bottom: 2px;">
         <div style="display:flex; justify-content:space-between; font-weight:bold; font-size: 10px;">
            <span>${item.product_type}</span><span>${formatCurrency(item.total_price)}</span>
         </div>
-        <div style="font-size:9px; color:#333;">${item.quantity > 0 ? item.quantity + ' ekor x ' : ''}${item.weight} Kg @${formatCurrency(item.price_per_kg)}</div>
-      </div>`).join('');
+        <div style="font-size:9px; color:#333;">${detailText}</div>
+      </div>`;
+    }).join('');
 
     const receiptContent = `
       <html><head><title>Struk</title><style>
@@ -210,7 +228,7 @@ const LaporanPenjualan = () => {
     <Layout>
       <div className="space-y-6 pb-20">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div><h1 className="text-3xl font-bold text-gray-900">Laporan Penjualan</h1><p className="text-gray-600">Laporan per Transaksi & Piutang</p></div>
+          <div><h1 className="text-3xl font-bold text-gray-900">Laporan Penjualan</h1><p className="text-gray-600">Gabungan Transaksi</p></div>
           <Button onClick={exportToExcel} className="bg-green-600 hover:bg-green-700"><Download className="h-4 w-4 mr-2"/> Excel</Button>
         </div>
 
@@ -252,7 +270,7 @@ const LaporanPenjualan = () => {
               <TableRow key={tx.id}>
                 <TableCell>{new Date(tx.date).toLocaleDateString('id-ID')}</TableCell>
                 <TableCell className="font-bold">{tx.customer_name}</TableCell>
-                <TableCell><div className="space-y-1">{tx.items.map((item, idx) => (<div key={idx} className="text-xs text-gray-600"><span className="font-semibold text-gray-900">{item.product_type}</span>: {item.weight} Kg {item.quantity > 0 && ` (${item.quantity} ekor)`}</div>))}</div></TableCell>
+                <TableCell><div className="space-y-1">{tx.items.map((item, idx) => (<div key={idx} className="text-xs text-gray-600"><span className="font-semibold text-gray-900">{item.product_type}</span>: {item.weight > 0 ? `${item.weight} Kg` : `${item.quantity} Pcs`}</div>))}</div></TableCell>
                 <TableCell className="text-right font-bold">{formatCurrency(tx.total_price)}</TableCell>
                 <TableCell className={`text-right ${sisa <= 0 ? 'text-green-600 font-bold' : 'text-red-600 font-medium'}`}>{formatCurrency(tx.total_paid)}{sisa > 0 && <div className="text-[10px] text-red-500">Kurang: {formatCurrency(sisa)}</div>}</TableCell>
                 <TableCell className="text-center"><Badge variant="outline" className={tx.payment_status === 'Lunas' ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}>{tx.payment_status}</Badge></TableCell>
