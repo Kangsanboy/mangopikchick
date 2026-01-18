@@ -14,8 +14,14 @@ import { SaleData, TABLE_NAMES } from "@/types/database";
 import { Plus, Loader2, ShoppingCart, Trash2, Save, Edit, CalendarDays } from "lucide-react";
 
 interface CustomerMaster { id: string; customer_name: string; default_quantity: number; }
-interface ProductMaster { id: string; product_name: string; price_per_kg: number; category: string; }
-interface CartItem { tempId: number; productName: string; productType: string; quantity: number; weight: number; pricePerKg: number; totalPrice: number; }
+interface ProductMaster { 
+  id: string; 
+  product_name: string; 
+  price_per_kg: number; 
+  category: string; 
+  unit_type: string; // Tambahan field Satuan
+}
+interface CartItem { tempId: number; productName: string; productType: string; quantity: number; weight: number; pricePerKg: number; totalPrice: number; unitType: string; }
 interface TransactionGroup { id: string; customer_name: string; date: string; total_price: number; items: SaleData[]; }
 
 const Penjualan = () => {
@@ -43,6 +49,7 @@ const Penjualan = () => {
   useEffect(() => { loadSalesHistory(); }, [selectedDate]);
 
   const loadMasterData = async () => {
+    // Ambil juga kolom unit_type
     const { data: pData } = await supabase.from(TABLE_NAMES.PRODUCT_MASTER).select('*').eq('is_active', true).order('product_name');
     const { data: cData } = await supabase.from('customer_master').select('*').eq('is_active', true).order('customer_name');
     setProducts(pData || []); setMasterCustomers(cData || []);
@@ -66,9 +73,14 @@ const Penjualan = () => {
   const handleProductChange = (pName: string) => {
     const prod = products.find(p => p.product_name === pName) || null;
     setSelectedProduct(prod);
+    
     if (prod) {
-      setPricePerKg(prod.price_per_kg.toString()); setQuantity(""); setWeight("");
-      if (prod.category === 'utuh' && customerName) {
+      setPricePerKg(prod.price_per_kg.toString()); 
+      setQuantity(""); 
+      setWeight("");
+      
+      // Jika Ayam Utuh (Kg), cek default qty pelanggan
+      if (prod.category === 'utuh' && prod.unit_type !== 'pcs' && customerName) {
         const cust = masterCustomers.find(c => c.customer_name === customerName);
         if (cust && cust.default_quantity) setQuantity(cust.default_quantity.toString());
       }
@@ -80,16 +92,30 @@ const Penjualan = () => {
     const qtyNum = quantity ? parseInt(quantity) : 0;
     const weightNum = weight ? parseFloat(weight) : 0;
     const priceNum = pricePerKg ? parseFloat(pricePerKg) : 0;
-    if (!weightNum && !qtyNum) { toast({ title: "Gagal", description: "Masukkan Berat atau Jumlah", variant: "destructive" }); return; }
     
+    // Validasi Input
+    const isPcs = selectedProduct.unit_type === 'pcs';
+    if (isPcs && !qtyNum) { toast({ title: "Gagal", description: "Masukkan Jumlah (Pcs)", variant: "destructive" }); return; }
+    if (!isPcs && !weightNum) { toast({ title: "Gagal", description: "Masukkan Berat (Kg)", variant: "destructive" }); return; }
+
+    // Hitung Total (Beda Rumus Kg vs Pcs)
+    const total = isPcs 
+      ? Math.round(qtyNum * priceNum) // Pcs: Jml * Harga
+      : Math.round(weightNum * priceNum); // Kg: Berat * Harga
+
     setCart([...cart, {
       tempId: Date.now(),
       productName: selectedProduct.product_name,
       productType: selectedProduct.category || 'utuh',
-      quantity: qtyNum, weight: weightNum, pricePerKg: priceNum,
-      totalPrice: Math.round(weightNum * priceNum)
+      quantity: qtyNum, 
+      weight: isPcs ? 0 : weightNum, // Kalau pcs, berat 0
+      pricePerKg: priceNum,
+      totalPrice: total,
+      unitType: selectedProduct.unit_type || 'kg'
     }]);
-    setSelectedProduct(null); setQuantity(""); setWeight(""); setPricePerKg("");
+    
+    // Reset Form (tapi jangan reset produk biar bisa input cepat lagi)
+    setQuantity(""); setWeight(""); 
   };
 
   const removeFromCart = (tempId: number) => setCart(cart.filter(item => item.tempId !== tempId));
@@ -122,9 +148,18 @@ const Penjualan = () => {
   const handleEditSave = async () => {
     if (!editData) return;
     setEditLoading(true);
+    
+    // Deteksi manual apakah ini transaksi Pcs atau Kg berdasarkan beratnya (logic sederhana)
+    // Kalau berat 0 tapi ada qty, berarti Pcs
+    const isPcsTransaction = editData.weight === 0 && editData.quantity > 0;
+    
+    const newTotal = isPcsTransaction
+      ? Math.round(editData.quantity * editData.price_per_kg)
+      : Math.round(editData.weight * editData.price_per_kg);
+
     await supabase.from(TABLE_NAMES.SALES).update({
       quantity: editData.quantity, weight: editData.weight, price_per_kg: editData.price_per_kg,
-      total_price: Math.round(editData.weight * editData.price_per_kg)
+      total_price: newTotal
     }).eq('id', editData.id);
     setIsEditOpen(false); setEditLoading(false); loadSalesHistory();
     toast({ title: "Update Berhasil" });
@@ -158,15 +193,43 @@ const Penjualan = () => {
 
         {customerName && (
           <Card className="border-t-4 border-t-purple-500 shadow-md">
-            <CardHeader className="pb-2"><CardTitle className="text-lg flex justify-between"><span>Input Barang</span>{selectedProduct && <Badge>{selectedProduct.category}</Badge>}</CardTitle></CardHeader>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg flex justify-between">
+                <span>Input Barang</span>
+                {selectedProduct && (
+                  <div className="flex gap-2">
+                    <Badge>{selectedProduct.category}</Badge>
+                    <Badge variant="outline">{selectedProduct.unit_type === 'pcs' ? 'Satuan (Pcs)' : 'Kiloan (Kg)'}</Badge>
+                  </div>
+                )}
+              </CardTitle>
+            </CardHeader>
             <CardContent className="space-y-4">
               <Select value={selectedProduct?.product_name || ""} onValueChange={handleProductChange}><SelectTrigger><SelectValue placeholder="-- Pilih Produk --" /></SelectTrigger><SelectContent>{products.map(p => <SelectItem key={p.id} value={p.product_name}>{p.product_name}</SelectItem>)}</SelectContent></Select>
+              
               {selectedProduct && (
-                <div className="bg-purple-50 p-4 rounded-lg space-y-4">
+                <div className="bg-purple-50 p-4 rounded-lg space-y-4 animate-in fade-in slide-in-from-top-2">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {selectedProduct.category === 'utuh' && <div><Label>Ekor</Label><Input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} className="bg-white" autoFocus /></div>}
-                    <div><Label>Berat (Kg)</Label><Input type="number" step="0.01" value={weight} onChange={e => setWeight(e.target.value)} className="bg-white" /></div>
-                    <div><Label>Harga</Label><Input type="number" value={pricePerKg} onChange={e => setPricePerKg(e.target.value)} className="bg-white" /></div>
+                    
+                    {/* LOGIKA TAMPILAN FORM BERDASARKAN SATUAN */}
+                    {selectedProduct.unit_type === 'pcs' ? (
+                      // FORM UNTUK PCS (ATI, DLL)
+                      <>
+                        <div><Label>Jumlah (Pcs)</Label><Input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} className="bg-white font-bold" autoFocus placeholder="0" /></div>
+                        <div><Label className="text-gray-400">Berat (Kg)</Label><Input disabled value="-" className="bg-gray-100" /></div>
+                      </>
+                    ) : (
+                      // FORM UNTUK KG (AYAM, DLL)
+                      <>
+                        {selectedProduct.category === 'utuh' 
+                          ? <div><Label>Jumlah Ekor</Label><Input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} className="bg-white" /></div>
+                          : <div><Label className="text-gray-400">Jumlah</Label><Input disabled value="-" className="bg-gray-100" /></div>
+                        }
+                        <div><Label>Berat (Kg)</Label><Input type="number" step="0.01" value={weight} onChange={e => setWeight(e.target.value)} className="bg-white font-bold" autoFocus placeholder="0.0" /></div>
+                      </>
+                    )}
+
+                    <div><Label>Harga Satuan</Label><Input type="number" value={pricePerKg} onChange={e => setPricePerKg(e.target.value)} className="bg-white" /></div>
                   </div>
                   <Button onClick={addToCart} className="w-full bg-purple-600 hover:bg-purple-700"><Plus className="mr-2 h-4 w-4"/> Masukkan Keranjang</Button>
                 </div>
@@ -181,7 +244,18 @@ const Penjualan = () => {
             <CardContent>
               <div className="bg-white rounded-md border shadow-sm overflow-hidden mb-4">
                 <table className="w-full text-sm text-left"><thead className="bg-gray-100 font-medium"><tr><th className="p-3">Produk</th><th className="p-3 text-center">Qty</th><th className="p-3 text-center">Berat</th><th className="p-3 text-right">Subtotal</th><th className="p-3 text-center">Aksi</th></tr></thead>
-                  <tbody>{cart.map((item) => (<tr key={item.tempId} className="border-b"><td className="p-3 font-medium">{item.productName}</td><td className="p-3 text-center">{item.quantity || '-'}</td><td className="p-3 text-center">{item.weight}</td><td className="p-3 text-right font-bold">{formatCurrency(item.totalPrice)}</td><td className="p-3 text-center"><button onClick={() => removeFromCart(item.tempId)} className="text-red-500"><Trash2 className="h-4 w-4"/></button></td></tr>))}</tbody>
+                  <tbody>{cart.map((item) => (
+                    <tr key={item.tempId} className="border-b">
+                      <td className="p-3 font-medium">
+                        {item.productName} 
+                        <span className="text-xs text-gray-500 ml-1">({item.unitType})</span>
+                      </td>
+                      <td className="p-3 text-center">{item.quantity || '-'}</td>
+                      <td className="p-3 text-center">{item.weight || '-'}</td>
+                      <td className="p-3 text-right font-bold">{formatCurrency(item.totalPrice)}</td>
+                      <td className="p-3 text-center"><button onClick={() => removeFromCart(item.tempId)} className="text-red-500"><Trash2 className="h-4 w-4"/></button></td>
+                    </tr>
+                  ))}</tbody>
                 </table>
               </div>
               <Button size="lg" onClick={submitTransaction} disabled={loading} className="w-full bg-green-600 hover:bg-green-700 font-bold shadow-lg">{loading ? <Loader2 className="animate-spin mr-2"/> : <Save className="mr-2 h-5 w-5" />} SIMPAN TRANSAKSI ({formatCurrency(grandTotal)})</Button>
@@ -189,7 +263,7 @@ const Penjualan = () => {
           </Card>
         )}
 
-        {/* RIWAYAT & SUMMARY BOX */}
+        {/* RIWAYAT */}
         <Card className="border-t-4 border-t-gray-500">
           <CardHeader><CardTitle className="flex items-center gap-2"><CalendarDays className="h-5 w-5" /> Riwayat {new Date(selectedDate).toLocaleDateString('id-ID')}</CardTitle></CardHeader>
           <CardContent className="space-y-4">
@@ -208,7 +282,15 @@ const Penjualan = () => {
                       <div className="bg-gray-50 rounded p-3 text-sm space-y-2">
                         {group.items.map((item) => (
                           <div key={item.id} className="flex justify-between border-b border-gray-200 last:border-0 pb-1 last:pb-0 items-center">
-                             <div className="flex-1"><span className="font-medium">{item.product_type}</span> <span className="text-gray-500 ml-2 text-xs">{item.quantity > 0 ? `${item.quantity} ekor, ` : ''}{item.weight} Kg</span></div>
+                             <div className="flex-1">
+                               <span className="font-medium">{item.product_type}</span> 
+                               <span className="text-gray-500 ml-2 text-xs">
+                                 {/* TAMPILAN DINAMIS DI RIWAYAT */}
+                                 {item.weight > 0 ? `${item.weight} Kg` : ''} 
+                                 {item.weight > 0 && item.quantity > 0 ? ', ' : ''}
+                                 {item.quantity > 0 ? `${item.quantity} ${item.weight === 0 ? 'Pcs' : 'Ekor'}` : ''}
+                               </span>
+                             </div>
                              <div className="flex items-center gap-3"><span className="text-gray-700 font-medium">{formatCurrency(item.total_price)}</span><button onClick={() => openEditModal(item)} className="text-blue-500 hover:text-blue-700"><Edit className="h-3 w-3"/></button></div>
                           </div>
                         ))}
@@ -217,14 +299,11 @@ const Penjualan = () => {
                     </div>
                   ))}
                 </div>
-
                 <Separator />
-
-                {/* SUMMARY BOX GANTENG (HIJAU) */}
                 <div className="p-4 bg-green-50 border border-green-100 rounded-lg">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
                     <div><p className="text-sm text-green-600">Total Transaksi</p><p className="font-bold text-lg text-green-900">{groupedSales.length}</p></div>
-                    <div><p className="text-sm text-green-600">Total Ekor</p><p className="font-bold text-lg text-green-900">{totalEkor}</p></div>
+                    <div><p className="text-sm text-green-600">Total Qty (Ekor/Pcs)</p><p className="font-bold text-lg text-green-900">{totalEkor}</p></div>
                     <div><p className="text-sm text-green-600">Total Berat</p><p className="font-bold text-lg text-green-900">{totalBerat.toFixed(1)} Kg</p></div>
                     <div><p className="text-sm text-green-600">Total Omzet</p><p className="font-bold text-xl text-green-900">{formatCurrency(totalHariIni)}</p></div>
                   </div>
@@ -240,8 +319,8 @@ const Penjualan = () => {
           {editData && (
             <div className="space-y-4 py-2">
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2"><Label>Ekor</Label><Input type="number" value={editData.quantity} onChange={(e) => setEditData({...editData, quantity: parseInt(e.target.value)||0})} /></div>
-                <div className="space-y-2"><Label>Berat</Label><Input type="number" step="0.01" value={editData.weight} onChange={(e) => setEditData({...editData, weight: parseFloat(e.target.value)||0})} /></div>
+                <div className="space-y-2"><Label>Qty (Ekor/Pcs)</Label><Input type="number" value={editData.quantity} onChange={(e) => setEditData({...editData, quantity: parseInt(e.target.value)||0})} /></div>
+                <div className="space-y-2"><Label>Berat (Kg)</Label><Input type="number" step="0.01" value={editData.weight} onChange={(e) => setEditData({...editData, weight: parseFloat(e.target.value)||0})} /></div>
               </div>
               <div className="space-y-2"><Label>Harga Satuan</Label><Input type="number" value={editData.price_per_kg} onChange={(e) => setEditData({...editData, price_per_kg: parseFloat(e.target.value)||0})} /></div>
             </div>
