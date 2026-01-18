@@ -24,11 +24,12 @@ interface ProductMaster {
 }
 interface CartItem { tempId: number; productName: string; productType: string; quantity: number; weight: number; pricePerKg: number; totalPrice: number; unitType: string; }
 interface TransactionGroup { id: string; customer_name: string; date: string; total_price: number; items: ExtendedSaleData[]; }
-interface ExtendedSaleData extends SaleData { unit_type?: string; } // Tambah tipe unit
+interface ExtendedSaleData extends SaleData { unit_type?: string; } 
 
 const Penjualan = () => {
   const { toast } = useToast();
-  const [selectedDate, setSelectedDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
+  // PERBAIKAN: Tanda kurung sudah lengkap sekarang!
+  const [selectedDate, setSelectedDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }));
   
   const [products, setProducts] = useState<ProductMaster[]>([]);
   const [masterCustomers, setMasterCustomers] = useState<CustomerMaster[]>([]);
@@ -116,12 +117,11 @@ const Penjualan = () => {
     setLoading(true);
     try {
       const timestamp = new Date().toISOString();
-      // UPDATE: Sekarang kirim unit_type ke database
       const payload = cart.map(item => ({
         date: selectedDate, customer_name: customerName, product_type: item.productName,
         quantity: item.quantity, weight: item.weight, price_per_kg: item.pricePerKg,
         total_price: item.totalPrice, payment_status: 'Belum Lunas', created_at: timestamp,
-        unit_type: item.unitType // Field baru
+        unit_type: item.unitType
       }));
       
       const { error } = await supabase.from(TABLE_NAMES.SALES).insert(payload);
