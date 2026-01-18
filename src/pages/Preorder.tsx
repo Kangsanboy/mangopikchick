@@ -12,7 +12,7 @@ import { CalendarDays, Plus, Loader2, Users } from "lucide-react";
 
 const Preorder = () => {
   const { toast } = useToast();
-  // PERBAIKAN: Pakai nama 'selectedDate' dan Waktu WIB
+  // PERBAIKAN: Konsisten pakai 'selectedDate' dan Waktu WIB
   const [selectedDate, setSelectedDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }));
   const [loading, setLoading] = useState(false);
   
