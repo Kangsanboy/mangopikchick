@@ -6,31 +6,49 @@ import { supabase } from "@/integrations/supabase/client";
 import { PreorderData, PurchaseData, SaleData, TABLE_NAMES } from "@/types/database";
 import { 
   TrendingUp, Users, ShoppingCart, Package, Loader2, 
-  Wallet, Activity, DollarSign 
+  Wallet, Activity, DollarSign, ArrowUpRight 
 } from "lucide-react";
 
+// 1. FUNGSI KHUSUS: Ambil Tanggal WIB (Asia/Jakarta)
+// Supaya jam 00:01 sudah ganti tanggal, gak nunggu jam 7 pagi (UTC).
+const getTodayWIB = () => {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }); // Format: YYYY-MM-DD
+};
+
 const Index = () => {
+  // State Data
   const [preorders, setPreorders] = useState<PreorderData[]>([]);
   const [purchases, setPurchases] = useState<PurchaseData[]>([]);
   const [sales, setSales] = useState<SaleData[]>([]);
-  const [expenses, setExpenses] = useState<any[]>([]); // State Pengeluaran
+  const [expenses, setExpenses] = useState<any[]>([]); 
   const [loading, setLoading] = useState(true);
 
-  // Get today's date
-  const today = new Date().toISOString().split('T')[0];
+  // State Tanggal (Default pakai WIB)
+  const [currentDate, setCurrentDate] = useState(getTodayWIB());
 
+  // 2. AUTO REFRESH: Cek setiap 1 menit
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const cekHari = getTodayWIB();
+      // Kalau tanggal di sistem berubah (misal dari tgl 19 ke 20), refresh halaman otomatis
+      if (cekHari !== currentDate) {
+        window.location.reload(); 
+      }
+    }, 60000); // 60.000 ms = 1 menit
+
+    return () => clearInterval(interval);
+  }, [currentDate]);
+
+  // 3. LOAD DATA DATABASE
   useEffect(() => {
     const loadData = async () => {
       try {
         setLoading(true);
         
-        // 1. Preorders
+        // Ambil semua data (diurutkan tanggal terbaru)
         const { data: preordersData } = await supabase.from(TABLE_NAMES.PREORDERS).select('*').order('date', { ascending: false });
-        // 2. Purchases
         const { data: purchasesData } = await supabase.from(TABLE_NAMES.PURCHASES).select('*').order('date', { ascending: false });
-        // 3. Sales
         const { data: salesData } = await supabase.from(TABLE_NAMES.SALES).select('*').order('date', { ascending: false });
-        // 4. Expenses
         const { data: expensesData } = await supabase.from('operational_expenses').select('*').order('date', { ascending: false });
         
         setPreorders(preordersData || []);
@@ -47,28 +65,29 @@ const Index = () => {
     loadData();
   }, []);
 
-  // Filter Today Data
-  const todayPreorders = preorders.filter(item => item.date === today);
-  const todayPurchases = purchases.filter(item => item.date === today);
-  const todaySales = sales.filter(item => item.date === today);
-  const todayExpenses = expenses.filter(item => item.date === today);
+  // 4. FILTER DATA HARI INI (Pakai Variable currentDate / WIB)
+  const todayPreorders = preorders.filter(item => item.date === currentDate);
+  const todayPurchases = purchases.filter(item => item.date === currentDate);
+  const todaySales = sales.filter(item => item.date === currentDate);
+  const todayExpenses = expenses.filter(item => item.date === currentDate);
 
-  // Totals Calculation
+  // 5. HITUNG-HITUNGAN TOTAL
   const totalPreorderQty = todayPreorders.reduce((sum, item) => sum + item.quantity, 0);
   
   const totalPurchaseQty = todayPurchases.reduce((sum, item) => sum + item.quantity, 0);
   const totalPurchaseWeight = todayPurchases.reduce((sum, item) => sum + item.weight, 0);
-  const totalPurchasePrice = todayPurchases.reduce((sum, item) => sum + item.total_price, 0); // Modal
+  const totalPurchasePrice = todayPurchases.reduce((sum, item) => sum + item.total_price, 0); // Modal Pembelian
   
   const totalSalesQty = todaySales.reduce((sum, item) => sum + (item.quantity || 0), 0);
-  const totalSalesPrice = todaySales.reduce((sum, item) => sum + item.total_price, 0); // Omzet
+  const totalSalesPrice = todaySales.reduce((sum, item) => sum + item.total_price, 0); // Omzet Penjualan
 
-  const totalOperational = todayExpenses.reduce((sum, item) => sum + item.amount, 0); // Biaya Ops
+  const totalOperational = todayExpenses.reduce((sum, item) => sum + item.amount, 0); // Biaya Operasional
 
-  // Profit Logic
-  const grossProfit = totalSalesPrice - totalPurchasePrice;
-  const netProfit = grossProfit - totalOperational;
+  // Logic Keuntungan
+  const grossProfit = totalSalesPrice - totalPurchasePrice; // Gaji Kotor (Omzet - Modal Ayam)
+  const netProfit = grossProfit - totalOperational; // Gaji Bersih (Kotor - Operasional)
   
+  // Logic Stok
   const isStockPositive = (totalPurchaseQty - totalSalesQty) >= 0;
   const stockDiff = Math.abs(totalPurchaseQty - totalSalesQty);
 
@@ -81,7 +100,9 @@ const Index = () => {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-            <p className="text-gray-600 mt-1">Monitoring hari ini - {new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
+            <p className="text-gray-600 mt-1">
+              Monitoring hari ini - {new Date(currentDate).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+            </p>
           </div>
           {loading && <div className="flex items-center gap-2 text-gray-600"><Loader2 className="h-4 w-4 animate-spin" /><span className="text-sm">Memuat data...</span></div>}
         </div>
@@ -169,7 +190,7 @@ const Index = () => {
           </Card>
         </div>
 
-        {/* --- ROW 3: DETAIL TABEL MONITORING (YANG HILANG DIKEMBALIKAN) --- */}
+        {/* --- ROW 3: DETAIL TABEL MONITORING --- */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           
           {/* TABEL PREORDER */}
@@ -209,7 +230,7 @@ const Index = () => {
             </CardContent>
           </Card>
 
-          {/* TABEL OPERASIONAL (BARU) */}
+          {/* TABEL OPERASIONAL */}
           <Card>
             <CardHeader><CardTitle className="flex items-center gap-2 text-sm text-orange-700"><Wallet className="h-4 w-4"/> Data Operasional Hari Ini</CardTitle></CardHeader>
             <CardContent className="space-y-2">
