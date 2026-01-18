@@ -12,7 +12,7 @@ import { CalendarDays, Plus, Loader2, Users } from "lucide-react";
 
 const Preorder = () => {
   const { toast } = useToast();
-  const [selectedDate, setSelectedDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }));
+  const [date, setDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }));
   const [loading, setLoading] = useState(false);
   
   // Form states
