@@ -14,7 +14,7 @@ import { CalendarDays, Plus, Loader2, ShoppingCart, Trash2, Edit, Save } from "l
 
 const Pembelian = () => {
   const { toast } = useToast();
-  // PERBAIKAN: Set Default Tanggal WIB
+  // PERBAIKAN: Default WIB
   const [selectedDate, setSelectedDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }));
   const [loading, setLoading] = useState(false);
   
