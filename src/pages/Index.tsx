@@ -9,17 +9,21 @@ import {
   Wallet, Activity, DollarSign, ArrowUpRight 
 } from "lucide-react";
 
-// 1. FUNGSI KHUSUS: Ambil Tanggal WIB (Asia/Jakarta)
-// Supaya jam 00:01 sudah ganti tanggal, gak nunggu jam 7 pagi (UTC).
+// 1. FUNGSI KHUSUS: Ambil Tanggal WIB
 const getTodayWIB = () => {
-  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }); // Format: YYYY-MM-DD
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
 };
+
+// Interface tambahan biar typescript ga marah soal unit_type
+interface ExtendedSaleData extends SaleData {
+  unit_type?: string; 
+}
 
 const Index = () => {
   // State Data
   const [preorders, setPreorders] = useState<PreorderData[]>([]);
   const [purchases, setPurchases] = useState<PurchaseData[]>([]);
-  const [sales, setSales] = useState<SaleData[]>([]);
+  const [sales, setSales] = useState<ExtendedSaleData[]>([]);
   const [expenses, setExpenses] = useState<any[]>([]); 
   const [loading, setLoading] = useState(true);
 
@@ -30,11 +34,10 @@ const Index = () => {
   useEffect(() => {
     const interval = setInterval(() => {
       const cekHari = getTodayWIB();
-      // Kalau tanggal di sistem berubah (misal dari tgl 19 ke 20), refresh halaman otomatis
       if (cekHari !== currentDate) {
         window.location.reload(); 
       }
-    }, 60000); // 60.000 ms = 1 menit
+    }, 60000); 
 
     return () => clearInterval(interval);
   }, [currentDate]);
@@ -45,7 +48,6 @@ const Index = () => {
       try {
         setLoading(true);
         
-        // Ambil semua data (diurutkan tanggal terbaru)
         const { data: preordersData } = await supabase.from(TABLE_NAMES.PREORDERS).select('*').order('date', { ascending: false });
         const { data: purchasesData } = await supabase.from(TABLE_NAMES.PURCHASES).select('*').order('date', { ascending: false });
         const { data: salesData } = await supabase.from(TABLE_NAMES.SALES).select('*').order('date', { ascending: false });
@@ -65,27 +67,34 @@ const Index = () => {
     loadData();
   }, []);
 
-  // 4. FILTER DATA HARI INI (Pakai Variable currentDate / WIB)
+  // 4. FILTER DATA HARI INI
   const todayPreorders = preorders.filter(item => item.date === currentDate);
   const todayPurchases = purchases.filter(item => item.date === currentDate);
   const todaySales = sales.filter(item => item.date === currentDate);
   const todayExpenses = expenses.filter(item => item.date === currentDate);
 
-  // 5. HITUNG-HITUNGAN TOTAL
+  // 5. HITUNG-HITUNGAN TOTAL (LOGIKA DIPERBAIKI DISINI)
   const totalPreorderQty = todayPreorders.reduce((sum, item) => sum + item.quantity, 0);
   
   const totalPurchaseQty = todayPurchases.reduce((sum, item) => sum + item.quantity, 0);
   const totalPurchaseWeight = todayPurchases.reduce((sum, item) => sum + item.weight, 0);
-  const totalPurchasePrice = todayPurchases.reduce((sum, item) => sum + item.total_price, 0); // Modal Pembelian
+  const totalPurchasePrice = todayPurchases.reduce((sum, item) => sum + item.total_price, 0); 
   
-  const totalSalesQty = todaySales.reduce((sum, item) => sum + (item.quantity || 0), 0);
-  const totalSalesPrice = todaySales.reduce((sum, item) => sum + item.total_price, 0); // Omzet Penjualan
+  // --- PERBAIKAN LOGIKA PENJUALAN EKOR ---
+  const totalSalesQty = todaySales.reduce((sum, item) => {
+    // Cek apakah item ini 'pcs' (seperti Ati/Ceker)
+    // Jika Pcs, jangan dihitung ke Total Ekor (return sum)
+    // Jika Kg/Utuh, baru ditambahkan (return sum + quantity)
+    if (item.unit_type === 'pcs') return sum; 
+    return sum + (item.quantity || 0);
+  }, 0);
 
-  const totalOperational = todayExpenses.reduce((sum, item) => sum + item.amount, 0); // Biaya Operasional
+  const totalSalesPrice = todaySales.reduce((sum, item) => sum + item.total_price, 0); 
+  const totalOperational = todayExpenses.reduce((sum, item) => sum + item.amount, 0); 
 
   // Logic Keuntungan
-  const grossProfit = totalSalesPrice - totalPurchasePrice; // Gaji Kotor (Omzet - Modal Ayam)
-  const netProfit = grossProfit - totalOperational; // Gaji Bersih (Kotor - Operasional)
+  const grossProfit = totalSalesPrice - totalPurchasePrice; 
+  const netProfit = grossProfit - totalOperational; 
   
   // Logic Stok
   const isStockPositive = (totalPurchaseQty - totalSalesQty) >= 0;
