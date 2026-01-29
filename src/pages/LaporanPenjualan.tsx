@@ -10,9 +10,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { SaleData, TABLE_NAMES } from "@/types/database";
-import { Download, Printer, Wallet, AlertCircle, Loader2, Filter } from "lucide-react";
+import { Download, Printer, Wallet, AlertCircle, Loader2, Filter, Package } from "lucide-react";
 
-// Interface lengkap dengan unit_type
 interface ExtendedSaleData extends SaleData {
   payment_status?: string;
   amount_paid?: number;
@@ -114,7 +113,7 @@ const LaporanPenjualan = () => {
   const handlePrint = (tx: GroupedTransaction) => {
     const sisaNotaIni = Math.max(0, tx.total_price - tx.total_paid);
     
-    // Hitung Hutang Lama (Hanya transaksi SEBELUM ini)
+    // Hutang Lama (Transaksi sebelum ini)
     const hutangLama = groupedTransactions
       .filter(t => 
         t.customer_name === tx.customer_name && 
@@ -125,17 +124,14 @@ const LaporanPenjualan = () => {
 
     const totalTagihan = sisaNotaIni + hutangLama;
 
-    // --- FORMAT STRUK PINTAR (PCS vs KG) ---
     const itemsHtml = tx.items.map(item => {
-      // Cek apakah barang ini Pcs (Ati/Ceker) atau Kiloan (Ayam)
+      // Cek Logic Pcs vs Kg
       const isPcs = item.unit_type === 'pcs' || (item.weight === 0 && item.quantity > 0);
       
       let detailText = "";
       if (isPcs) {
-        // Tampilan Pcs: "200 Pcs @Rp 1.500"
         detailText = `${item.quantity} Pcs @${formatCurrency(item.price_per_kg)}`;
       } else {
-        // Tampilan Kiloan: "100 ekor x 200 Kg @Rp 28.500"
         const qtyPrefix = item.quantity > 0 ? `${item.quantity} ekor x ` : '';
         detailText = `${qtyPrefix}${item.weight} Kg @${formatCurrency(item.price_per_kg)}`;
       }
@@ -206,8 +202,25 @@ const LaporanPenjualan = () => {
 
   const formatCurrency = (val: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(val);
   
+  // --- HITUNG SUMMARY (LOGIKA BARU PEMISAHAN) ---
+  let calculatedTotalEkor = 0;
+  let calculatedTotalPcs = 0;
+
+  // Kita iterasi item per item di dalam transaksi yang terfilter
+  filteredTransactions.forEach(tx => {
+    tx.items.forEach(item => {
+      // Cek apakah Pcs (Ati) atau Kg (Ayam)
+      const isPcs = item.unit_type === 'pcs' || (item.weight === 0 && item.quantity > 0);
+      
+      if (isPcs) {
+        calculatedTotalPcs += (item.quantity || 0);
+      } else {
+        calculatedTotalEkor += (item.quantity || 0);
+      }
+    });
+  });
+
   const grandTotalRevenue = filteredTransactions.reduce((sum, t) => sum + t.total_price, 0);
-  const grandTotalEkor = filteredTransactions.reduce((sum, t) => sum + t.total_quantity, 0);
   const totalHutang = filteredTransactions.reduce((sum, t) => sum + Math.max(0, t.total_price - t.total_paid), 0);
 
   const exportToExcel = () => {
@@ -232,37 +245,59 @@ const LaporanPenjualan = () => {
           <Button onClick={exportToExcel} className="bg-green-600 hover:bg-green-700"><Download className="h-4 w-4 mr-2"/> Excel</Button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <Card className="bg-blue-50 border-blue-200"><CardHeader className="pb-2"><CardTitle className="text-sm text-blue-700">Total Transaksi</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-blue-900">{filteredTransactions.length}</div></CardContent></Card>
-          <Card className="bg-purple-50 border-purple-200"><CardHeader className="pb-2"><CardTitle className="text-sm text-purple-700">Total Ekor</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-purple-900">{grandTotalEkor}</div></CardContent></Card>
-          <Card className="bg-orange-50 border-orange-200"><CardHeader className="pb-2"><CardTitle className="text-sm text-orange-700">Pendapatan Kotor</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-orange-900">{formatCurrency(grandTotalRevenue)}</div></CardContent></Card>
-          <Card className="bg-red-50 border-red-200 shadow-sm"><CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0"><CardTitle className="text-sm font-bold text-red-700">Total Piutang (Hutang)</CardTitle><AlertCircle className="h-4 w-4 text-red-600"/></CardHeader><CardContent><div className="text-2xl font-bold text-red-800">{formatCurrency(totalHutang)}</div><p className="text-xs text-red-600 mt-1">Uang belum dibayar</p></CardContent></Card>
+        {/* SUMMARY CARDS (Sekarang ada 5 Card) */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          <Card className="bg-blue-50 border-blue-200">
+            <CardHeader className="pb-2"><CardTitle className="text-sm text-blue-700">Total Transaksi</CardTitle></CardHeader>
+            <CardContent><div className="text-2xl font-bold text-blue-900">{filteredTransactions.length}</div></CardContent>
+          </Card>
+          
+          {/* Card Total Ekor (KHUSUS AYAM) */}
+          <Card className="bg-purple-50 border-purple-200">
+            <CardHeader className="pb-2"><CardTitle className="text-sm text-purple-700">Total Ekor</CardTitle></CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-purple-900">{calculatedTotalEkor}</div>
+              <p className="text-[10px] text-purple-600 mt-1">Ayam Utuh</p>
+            </CardContent>
+          </Card>
+
+          {/* Card Baru: Total Pcs (KHUSUS ATI/JEROAN) */}
+          <Card className="bg-indigo-50 border-indigo-200">
+            <CardHeader className="pb-2 flex items-center gap-2">
+              <CardTitle className="text-sm text-indigo-700">Total Pcs</CardTitle>
+              <Package className="h-4 w-4 text-indigo-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-indigo-900">{calculatedTotalPcs}</div>
+              <p className="text-[10px] text-indigo-600 mt-1">Ati / Ceker / Pcs</p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-orange-50 border-orange-200">
+            <CardHeader className="pb-2"><CardTitle className="text-sm text-orange-700">Pendapatan Kotor</CardTitle></CardHeader>
+            <CardContent><div className="text-lg font-bold text-orange-900">{formatCurrency(grandTotalRevenue)}</div></CardContent>
+          </Card>
+          
+          <Card className="bg-red-50 border-red-200 shadow-sm">
+            <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0"><CardTitle className="text-sm font-bold text-red-700">Piutang</CardTitle><AlertCircle className="h-4 w-4 text-red-600"/></CardHeader>
+            <CardContent>
+              <div className="text-lg font-bold text-red-800">{formatCurrency(totalHutang)}</div>
+              <p className="text-[10px] text-red-600 mt-1">Belum Dibayar</p>
+            </CardContent>
+          </Card>
         </div>
 
-        {/* --- CARD FILTER GANTENG --- */}
+        {/* --- FILTER --- */}
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base text-gray-800">
-              <Filter className="h-4 w-4 text-gray-500" /> Filter Data Transaksi
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-             <div className="space-y-1">
-               <Label className="text-xs font-medium text-gray-500">Mulai Dari</Label>
-               <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
-             </div>
-             <div className="space-y-1">
-               <Label className="text-xs font-medium text-gray-500">Sampai</Label>
-               <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
-             </div>
-             <div className="space-y-1">
-               <Label className="text-xs font-medium text-gray-500">Nama Pelanggan</Label>
-               <Input placeholder="Cari Pelanggan..." value={customerFilter} onChange={e => setCustomerFilter(e.target.value)} />
-             </div>
-             <Button variant="outline" className="w-full border-dashed" onClick={() => {setStartDate(""); setEndDate(""); setCustomerFilter("")}}>Reset Filter</Button>
+          <CardContent className="p-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+             <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+             <Input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
+             <Input placeholder="Cari Pelanggan..." value={customerFilter} onChange={e => setCustomerFilter(e.target.value)} />
+             <Button variant="outline" onClick={() => {setStartDate(""); setEndDate(""); setCustomerFilter("")}}>Reset Filter</Button>
           </CardContent>
         </Card>
 
+        {/* --- TABEL --- */}
         <Card><CardContent className="p-0"><Table><TableHeader><TableRow><TableHead>Tanggal</TableHead><TableHead>Pelanggan</TableHead><TableHead>Detail Barang</TableHead><TableHead className="text-right">Total Tagihan</TableHead><TableHead className="text-right">Sudah Bayar</TableHead><TableHead className="text-center">Status</TableHead><TableHead className="text-center">Aksi</TableHead></TableRow></TableHeader>
           <TableBody>{filteredTransactions.map((tx) => {
             const sisa = Math.max(0, tx.total_price - tx.total_paid);
@@ -275,7 +310,7 @@ const LaporanPenjualan = () => {
                   return (
                     <div key={idx} className="text-xs text-gray-600">
                       <span className="font-semibold text-gray-900">{item.product_type}</span>: 
-                      {isPcs ? ` ${item.quantity} Pcs` : ` ${item.weight} Kg`}
+                      {isPcs ? ` ${item.quantity} Pcs` : ` ${item.weight} Kg (${item.quantity} Ekor)`}
                     </div>
                   );
                 })}</div></TableCell>
