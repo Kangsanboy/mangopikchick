@@ -2,11 +2,12 @@ import { useState, useEffect } from "react";
 import Layout from "@/components/Layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input"; // Import Input
 import { supabase } from "@/integrations/supabase/client";
 import { PreorderData, PurchaseData, SaleData, TABLE_NAMES } from "@/types/database";
 import { 
   TrendingUp, Users, ShoppingCart, Package, Loader2, 
-  Wallet, Activity, DollarSign, ArrowUpRight 
+  Wallet, Activity, DollarSign, Calendar // Import Calendar Icon
 } from "lucide-react";
 
 // 1. FUNGSI KHUSUS: Ambil Tanggal WIB
@@ -14,7 +15,7 @@ const getTodayWIB = () => {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
 };
 
-// Interface tambahan biar typescript ga marah soal unit_type
+// Interface tambahan
 interface ExtendedSaleData extends SaleData {
   unit_type?: string; 
 }
@@ -27,27 +28,16 @@ const Index = () => {
   const [expenses, setExpenses] = useState<any[]>([]); 
   const [loading, setLoading] = useState(true);
 
-  // State Tanggal (Default pakai WIB)
+  // State Tanggal (Bisa diubah user)
   const [currentDate, setCurrentDate] = useState(getTodayWIB());
 
-  // 2. AUTO REFRESH: Cek setiap 1 menit
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const cekHari = getTodayWIB();
-      if (cekHari !== currentDate) {
-        window.location.reload(); 
-      }
-    }, 60000); 
-
-    return () => clearInterval(interval);
-  }, [currentDate]);
-
-  // 3. LOAD DATA DATABASE
+  // 2. LOAD DATA DATABASE
   useEffect(() => {
     const loadData = async () => {
       try {
         setLoading(true);
         
+        // Load semua data biar perpindahan tanggal cepat (Client-side filtering)
         const { data: preordersData } = await supabase.from(TABLE_NAMES.PREORDERS).select('*').order('date', { ascending: false });
         const { data: purchasesData } = await supabase.from(TABLE_NAMES.PURCHASES).select('*').order('date', { ascending: false });
         const { data: salesData } = await supabase.from(TABLE_NAMES.SALES).select('*').order('date', { ascending: false });
@@ -67,24 +57,21 @@ const Index = () => {
     loadData();
   }, []);
 
-  // 4. FILTER DATA HARI INI
+  // 3. FILTER DATA SESUAI TANGGAL YANG DIPILIH
   const todayPreorders = preorders.filter(item => item.date === currentDate);
   const todayPurchases = purchases.filter(item => item.date === currentDate);
   const todaySales = sales.filter(item => item.date === currentDate);
   const todayExpenses = expenses.filter(item => item.date === currentDate);
 
-  // 5. HITUNG-HITUNGAN TOTAL (LOGIKA DIPERBAIKI DISINI)
+  // 4. HITUNG-HITUNGAN TOTAL
   const totalPreorderQty = todayPreorders.reduce((sum, item) => sum + item.quantity, 0);
   
   const totalPurchaseQty = todayPurchases.reduce((sum, item) => sum + item.quantity, 0);
   const totalPurchaseWeight = todayPurchases.reduce((sum, item) => sum + item.weight, 0);
   const totalPurchasePrice = todayPurchases.reduce((sum, item) => sum + item.total_price, 0); 
   
-  // --- PERBAIKAN LOGIKA PENJUALAN EKOR ---
+  // Logic Penjualan Ekor (Filter Pcs/Ati agar tidak terhitung ekor)
   const totalSalesQty = todaySales.reduce((sum, item) => {
-    // Cek apakah item ini 'pcs' (seperti Ati/Ceker)
-    // Jika Pcs, jangan dihitung ke Total Ekor (return sum)
-    // Jika Kg/Utuh, baru ditambahkan (return sum + quantity)
     if (item.unit_type === 'pcs') return sum; 
     return sum + (item.quantity || 0);
   }, 0);
@@ -105,15 +92,28 @@ const Index = () => {
   return (
     <Layout>
       <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
+        {/* --- HEADER DENGAN DATE PICKER --- */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
             <p className="text-gray-600 mt-1">
-              Monitoring hari ini - {new Date(currentDate).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+              Monitoring Data: <span className="font-semibold text-blue-600">{new Date(currentDate).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span>
             </p>
           </div>
-          {loading && <div className="flex items-center gap-2 text-gray-600"><Loader2 className="h-4 w-4 animate-spin" /><span className="text-sm">Memuat data...</span></div>}
+          
+          <div className="flex items-center gap-3 bg-gray-50 p-2 rounded-lg border border-gray-200">
+            <div className="flex items-center gap-2 text-gray-600">
+               <Calendar className="h-5 w-5" />
+               <span className="text-sm font-medium hidden md:inline">Pilih Tanggal:</span>
+            </div>
+            <Input 
+              type="date" 
+              value={currentDate} 
+              onChange={(e) => setCurrentDate(e.target.value)} 
+              className="w-auto h-9 bg-white border-gray-300 font-medium"
+            />
+            {loading && <Loader2 className="h-5 w-5 text-blue-600 animate-spin" />}
+          </div>
         </div>
 
         {/* --- ROW 1: KARTU UTAMA --- */}
@@ -204,7 +204,7 @@ const Index = () => {
           
           {/* TABEL PREORDER */}
           <Card>
-            <CardHeader><CardTitle className="flex items-center gap-2 text-sm"><Users className="h-4 w-4"/> Data Preorder Hari Ini</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="flex items-center gap-2 text-sm"><Users className="h-4 w-4"/> Data Preorder</CardTitle></CardHeader>
             <CardContent className="space-y-2">
               {todayPreorders.length > 0 ? todayPreorders.map(p => (
                 <div key={p.id} className="flex justify-between p-2 bg-gray-50 rounded text-sm">
@@ -216,7 +216,7 @@ const Index = () => {
 
           {/* TABEL PEMBELIAN */}
           <Card>
-            <CardHeader><CardTitle className="flex items-center gap-2 text-sm"><ShoppingCart className="h-4 w-4"/> Data Pembelian Hari Ini</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="flex items-center gap-2 text-sm"><ShoppingCart className="h-4 w-4"/> Data Pembelian</CardTitle></CardHeader>
             <CardContent className="space-y-2">
               {todayPurchases.length > 0 ? todayPurchases.map(p => (
                 <div key={p.id} className="flex justify-between p-2 bg-gray-50 rounded text-sm">
@@ -228,7 +228,7 @@ const Index = () => {
 
           {/* TABEL PENJUALAN */}
           <Card>
-            <CardHeader><CardTitle className="flex items-center gap-2 text-sm"><DollarSign className="h-4 w-4"/> Data Penjualan Hari Ini</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="flex items-center gap-2 text-sm"><DollarSign className="h-4 w-4"/> Data Penjualan</CardTitle></CardHeader>
             <CardContent className="space-y-2">
               {todaySales.length > 0 ? todaySales.map(s => (
                 <div key={s.id} className="flex justify-between p-2 bg-gray-50 rounded text-sm">
@@ -241,7 +241,7 @@ const Index = () => {
 
           {/* TABEL OPERASIONAL */}
           <Card>
-            <CardHeader><CardTitle className="flex items-center gap-2 text-sm text-orange-700"><Wallet className="h-4 w-4"/> Data Operasional Hari Ini</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="flex items-center gap-2 text-sm text-orange-700"><Wallet className="h-4 w-4"/> Data Operasional</CardTitle></CardHeader>
             <CardContent className="space-y-2">
               {todayExpenses.length > 0 ? todayExpenses.map(e => (
                 <div key={e.id} className="flex justify-between p-2 bg-orange-50 rounded text-sm border border-orange-100">
