@@ -113,7 +113,7 @@ const LaporanPenjualan = () => {
   const handlePrint = (tx: GroupedTransaction) => {
     const sisaNotaIni = Math.max(0, tx.total_price - tx.total_paid);
     
-    // Hutang Lama (Transaksi sebelum ini)
+    // Hutang Lama
     const hutangLama = groupedTransactions
       .filter(t => 
         t.customer_name === tx.customer_name && 
@@ -202,20 +202,26 @@ const LaporanPenjualan = () => {
 
   const formatCurrency = (val: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(val);
   
-  // --- HITUNG SUMMARY (LOGIKA BARU PEMISAHAN) ---
+  // --- HITUNG SUMMARY (REVISI KHUSUS) ---
   let calculatedTotalEkor = 0;
-  let calculatedTotalPcs = 0;
+  let calculatedTotalAti = 0; // Ganti dari Total Pcs jadi Total Ati
 
   // Kita iterasi item per item di dalam transaksi yang terfilter
   filteredTransactions.forEach(tx => {
     tx.items.forEach(item => {
-      // Cek apakah Pcs (Ati) atau Kg (Ayam)
+      // Logic deteksi Pcs vs Kg (Ekor)
       const isPcs = item.unit_type === 'pcs' || (item.weight === 0 && item.quantity > 0);
       
-      if (isPcs) {
-        calculatedTotalPcs += (item.quantity || 0);
-      } else {
+      if (!isPcs) {
+        // Ini masuk Total Ekor (Ayam Utuh / Hidup / Kiloan)
         calculatedTotalEkor += (item.quantity || 0);
+      } else {
+        // Ini barang Pcs. Kita cek apakah namanya mengandung "Ati"?
+        // Gunakan toLowerCase() biar aman (Ati, ati, ATI semua masuk)
+        if (item.product_type.toLowerCase().includes('ati')) {
+           calculatedTotalAti += (item.quantity || 0);
+        }
+        // Ceker, Kepala, Usus dll otomatis DIABAIKAN dari kedua card ini
       }
     });
   });
@@ -245,31 +251,31 @@ const LaporanPenjualan = () => {
           <Button onClick={exportToExcel} className="bg-green-600 hover:bg-green-700"><Download className="h-4 w-4 mr-2"/> Excel</Button>
         </div>
 
-        {/* SUMMARY CARDS (Sekarang ada 5 Card) */}
+        {/* SUMMARY CARDS (5 Kolom) */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
           <Card className="bg-blue-50 border-blue-200">
             <CardHeader className="pb-2"><CardTitle className="text-sm text-blue-700">Total Transaksi</CardTitle></CardHeader>
             <CardContent><div className="text-2xl font-bold text-blue-900">{filteredTransactions.length}</div></CardContent>
           </Card>
           
-          {/* Card Total Ekor (KHUSUS AYAM) */}
+          {/* Card Total Ekor (KHUSUS AYAM UTUH/KILOAN) */}
           <Card className="bg-purple-50 border-purple-200">
             <CardHeader className="pb-2"><CardTitle className="text-sm text-purple-700">Total Ekor</CardTitle></CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-purple-900">{calculatedTotalEkor}</div>
-              <p className="text-[10px] text-purple-600 mt-1">Ayam Utuh</p>
+              <p className="text-[10px] text-purple-600 mt-1">Ayam Utuh / Hidup</p>
             </CardContent>
           </Card>
 
-          {/* Card Baru: Total Pcs (KHUSUS ATI/JEROAN) */}
+          {/* Card Total Ati (KHUSUS PRODUK BERNAMA 'ATI') */}
           <Card className="bg-indigo-50 border-indigo-200">
             <CardHeader className="pb-2 flex items-center gap-2">
-              <CardTitle className="text-sm text-indigo-700">Total Pcs</CardTitle>
+              <CardTitle className="text-sm text-indigo-700">Total Ati</CardTitle>
               <Package className="h-4 w-4 text-indigo-500" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-indigo-900">{calculatedTotalPcs}</div>
-              <p className="text-[10px] text-indigo-600 mt-1">Ati / Ceker / Pcs</p>
+              <div className="text-2xl font-bold text-indigo-900">{calculatedTotalAti}</div>
+              <p className="text-[10px] text-indigo-600 mt-1">Pcs (Khusus Ati)</p>
             </CardContent>
           </Card>
 
