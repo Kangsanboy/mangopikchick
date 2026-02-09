@@ -13,7 +13,7 @@ import {
   Users, 
   ShoppingCart, 
   DollarSign,
-  Wallet // Tambahkan icon Wallet untuk Operasional
+  Wallet 
 } from "lucide-react";
 
 interface LayoutProps {
@@ -52,7 +52,7 @@ const Layout = ({
           icon: DollarSign
         },
         {
-          title: "Operasional", // Menu Baru
+          title: "Operasional",
           href: "/operasional",
           icon: Wallet
         }
@@ -62,7 +62,14 @@ const Layout = ({
       title: "Laporan Penjualan",
       href: "/laporan-penjualan",
       icon: FileText
-    }, 
+    },
+    // --- MENU BARU DITAMBAHKAN DISINI ---
+    {
+      title: "Karyawan & Gaji",
+      href: "/karyawan",
+      icon: Users
+    },
+    // ------------------------------------
     {
       title: "Data Master",
       href: "/data-master",
@@ -104,7 +111,9 @@ const Layout = ({
                 {item.href ? (
                   <Link 
                     to={item.href} 
-                    className="flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 relative group text-gray-600 hover:bg-gray-100 hover:text-gray-900 font-normal" 
+                    className={cn("flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 relative group", 
+                      location.pathname === item.href ? "bg-green-100 text-green-700 font-medium" : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 font-normal"
+                    )}
                     title={!sidebarOpen ? item.title : undefined}
                   >
                     <Icon className="h-5 w-5 flex-shrink-0" />
