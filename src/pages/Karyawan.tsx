@@ -9,14 +9,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Users, CalendarCheck, Banknote, Save, Loader2, Edit } from "lucide-react";
+import { Users, CalendarCheck, Save, Loader2 } from "lucide-react";
 
-// Tipe data sesuai tabel customer_master
 interface CustomerEmployee {
   id: string;
-  customer_name: string; // Pakai customer_name
-  daily_base_salary: number;
-  overtime_rate: number;
+  customer_name: string;
 }
 
 interface AttendanceLog {
@@ -25,12 +22,13 @@ interface AttendanceLog {
   date: string;
   status: 'Hadir' | 'Izin' | 'Alpha';
   overtime_hours: number;
-  customer_master?: CustomerEmployee; // Relasi join
+  customer_master?: CustomerEmployee; 
 }
 
 const Karyawan = () => {
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<"absen" | "laporan" | "gaji">("absen");
+  // Hanya ada 2 Tab sekarang
+  const [activeTab, setActiveTab] = useState<"absen" | "laporan">("absen");
   const [loading, setLoading] = useState(false);
 
   // States Data
@@ -40,15 +38,10 @@ const Karyawan = () => {
   const [absenDate, setAbsenDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }));
   const [inputAttendance, setInputAttendance] = useState<{ [key: string]: { status: string; overtime: string } }>({});
 
-  // States Laporan & Edit Gaji
+  // States Laporan
   const [reportStartDate, setReportStartDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }));
   const [reportEndDate, setReportEndDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }));
   const [reportLogs, setReportLogs] = useState<AttendanceLog[]>([]);
-  
-  // State Edit Gaji
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editBase, setEditBase] = useState("");
-  const [editOvertime, setEditOvertime] = useState("");
 
   useEffect(() => { loadEmployees(); }, []);
 
@@ -57,11 +50,10 @@ const Karyawan = () => {
     if (activeTab === "absen") loadExistingAttendance();
   }, [activeTab, absenDate, reportStartDate, reportEndDate]);
 
-  // --- 1. LOAD DATA ---
+  // --- LOAD DATA ---
   const loadEmployees = async () => {
     setLoading(true);
-    // Ambil dari customer_master
-    const { data } = await supabase.from('customer_master').select('*').eq('is_active', true).order('customer_name');
+    const { data } = await supabase.from('customer_master').select('id, customer_name').eq('is_active', true).order('customer_name');
     setEmployees(data || []);
     
     const initialInput: any = {};
@@ -81,7 +73,6 @@ const Karyawan = () => {
       });
       setInputAttendance(prev => ({ ...prev, ...loaded }));
     } else {
-      // Reset kalau hari baru
       const reset: any = {};
       employees.forEach(emp => {
         reset[emp.id] = { status: 'Hadir', overtime: '0' };
@@ -92,10 +83,9 @@ const Karyawan = () => {
 
   const loadReport = async () => {
     setLoading(true);
-    // Join ke customer_master
     const { data, error } = await supabase
       .from('attendance_logs')
-      .select('*, customer_master(*)') 
+      .select('*, customer_master(customer_name)') 
       .gte('date', reportStartDate)
       .lte('date', reportEndDate)
       .order('date', { ascending: false });
@@ -105,18 +95,7 @@ const Karyawan = () => {
     setLoading(false);
   };
 
-  // --- 2. UPDATE GAJI ---
-  const updateSalary = async (id: string) => {
-    await supabase.from('customer_master').update({
-      daily_base_salary: parseInt(editBase) || 0,
-      overtime_rate: parseInt(editOvertime) || 0
-    }).eq('id', id);
-    setEditingId(null);
-    loadEmployees();
-    toast({ title: "Tersimpan", description: "Nominal gaji diperbarui" });
-  };
-
-  // --- 3. SIMPAN ABSEN ---
+  // --- SAVE ACTION ---
   const saveAttendance = async () => {
     setLoading(true);
     const updates = employees.map(emp => ({
@@ -141,32 +120,25 @@ const Karyawan = () => {
     }));
   };
 
-  const formatRp = (n: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n);
-
-  // --- 4. HITUNG GAJI ---
-  const salarySummary = employees.map(emp => {
+  // --- SUMMARY LOGIC (Tanpa Rupiah, Cuma Jam/Hari) ---
+  const attendanceSummary = employees.map(emp => {
     const myLogs = reportLogs.filter(log => log.customer_id === emp.id);
     const hadirCount = myLogs.filter(l => l.status === 'Hadir').length;
+    const izinCount = myLogs.filter(l => l.status === 'Izin').length;
+    const alphaCount = myLogs.filter(l => l.status === 'Alpha').length;
     const totalOvertimeHours = myLogs.reduce((sum, l) => sum + (l.overtime_hours || 0), 0);
     
-    const totalGajiPokok = hadirCount * (emp.daily_base_salary || 0);
-    const totalGajiLembur = totalOvertimeHours * (emp.overtime_rate || 0);
-    const grandTotal = totalGajiPokok + totalGajiLembur;
-
-    return { name: emp.customer_name, hadir: hadirCount, lemburJam: totalOvertimeHours, totalGajiPokok, totalGajiLembur, grandTotal };
+    return { name: emp.customer_name, hadir: hadirCount, izin: izinCount, alpha: alphaCount, lemburJam: totalOvertimeHours };
   });
-
-  const totalPayout = salarySummary.reduce((sum, s) => sum + s.grandTotal, 0);
 
   return (
     <Layout>
       <div className="space-y-6 pb-20">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div><h1 className="text-3xl font-bold text-gray-900">Manajemen Karyawan</h1><p className="text-gray-600">Data diambil dari Database Pelanggan</p></div>
+          <div><h1 className="text-3xl font-bold text-gray-900">Manajemen Absensi</h1><p className="text-gray-600">Monitoring kehadiran karyawan (Pelanggan)</p></div>
           <div className="flex bg-gray-100 p-1 rounded-lg">
-            <button onClick={() => setActiveTab("absen")} className={`px-4 py-2 rounded text-sm font-medium ${activeTab === "absen" ? "bg-white text-blue-700 shadow" : "text-gray-500"}`}>Absensi</button>
-            <button onClick={() => setActiveTab("laporan")} className={`px-4 py-2 rounded text-sm font-medium ${activeTab === "laporan" ? "bg-white text-green-700 shadow" : "text-gray-500"}`}>Laporan Gaji</button>
-            <button onClick={() => setActiveTab("gaji")} className={`px-4 py-2 rounded text-sm font-medium ${activeTab === "gaji" ? "bg-white text-gray-900 shadow" : "text-gray-500"}`}>Setting Gaji</button>
+            <button onClick={() => setActiveTab("absen")} className={`px-4 py-2 rounded text-sm font-medium ${activeTab === "absen" ? "bg-white text-blue-700 shadow" : "text-gray-500"}`}>Input Absensi</button>
+            <button onClick={() => setActiveTab("laporan")} className={`px-4 py-2 rounded text-sm font-medium ${activeTab === "laporan" ? "bg-white text-green-700 shadow" : "text-gray-500"}`}>Laporan Kehadiran</button>
           </div>
         </div>
 
@@ -179,17 +151,14 @@ const Karyawan = () => {
             </CardHeader>
             <CardContent>
               <Table>
-                <TableHeader className="bg-gray-50"><TableRow><TableHead>Nama Karyawan</TableHead><TableHead>Status</TableHead><TableHead>Lembur (Jam)</TableHead><TableHead className="text-right">Estimasi Upah</TableHead></TableRow></TableHeader>
+                <TableHeader className="bg-gray-50"><TableRow><TableHead>Nama Karyawan</TableHead><TableHead>Status Kehadiran</TableHead><TableHead>Jam Lembur</TableHead></TableRow></TableHeader>
                 <TableBody>{employees.map(emp => {
                   const status = inputAttendance[emp.id]?.status || 'Hadir';
-                  const lembur = parseFloat(inputAttendance[emp.id]?.overtime || '0');
-                  const est = (status === 'Hadir' ? (emp.daily_base_salary||0) : 0) + (lembur * (emp.overtime_rate||0));
                   return (
                     <TableRow key={emp.id}>
                       <TableCell className="font-bold">{emp.customer_name}</TableCell>
-                      <TableCell><Select value={status} onValueChange={(v) => handleInputChange(emp.id, 'status', v)}><SelectTrigger className="w-[120px]"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="Hadir">Hadir</SelectItem><SelectItem value="Izin">Izin</SelectItem><SelectItem value="Alpha">Alpha</SelectItem></SelectContent></Select></TableCell>
-                      <TableCell><Input type="number" className="w-20" value={inputAttendance[emp.id]?.overtime} onChange={(e) => handleInputChange(emp.id, 'overtime', e.target.value)} /></TableCell>
-                      <TableCell className="text-right text-gray-600">{formatRp(est)}</TableCell>
+                      <TableCell><Select value={status} onValueChange={(v) => handleInputChange(emp.id, 'status', v)}><SelectTrigger className="w-[150px]"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="Hadir">Hadir</SelectItem><SelectItem value="Izin">Izin</SelectItem><SelectItem value="Alpha">Alpha</SelectItem></SelectContent></Select></TableCell>
+                      <TableCell><div className="flex items-center gap-2"><Input type="number" className="w-20" value={inputAttendance[emp.id]?.overtime} onChange={(e) => handleInputChange(emp.id, 'overtime', e.target.value)} /><span>Jam</span></div></TableCell>
                     </TableRow>
                   )
                 })}</TableBody>
@@ -199,50 +168,26 @@ const Karyawan = () => {
           </Card>
         )}
 
-        {/* TAB 2: LAPORAN GAJI */}
+        {/* TAB 2: LAPORAN KEHADIRAN (Hanya Rekap Waktu) */}
         {activeTab === "laporan" && (
           <div className="space-y-6">
-            <Card><CardContent className="p-4 flex gap-4 items-end"><div className="flex-1"><Label>Dari</Label><Input type="date" value={reportStartDate} onChange={e => setReportStartDate(e.target.value)}/></div><div className="flex-1"><Label>Sampai</Label><Input type="date" value={reportEndDate} onChange={e => setReportEndDate(e.target.value)}/></div><div className="text-right"><p className="text-sm text-gray-500">Total Gaji Dibayarkan</p><p className="text-2xl font-bold text-green-700">{formatRp(totalPayout)}</p></div></CardContent></Card>
+            <Card><CardContent className="p-4 flex gap-4 items-end"><div className="flex-1"><Label>Dari</Label><Input type="date" value={reportStartDate} onChange={e => setReportStartDate(e.target.value)}/></div><div className="flex-1"><Label>Sampai</Label><Input type="date" value={reportEndDate} onChange={e => setReportEndDate(e.target.value)}/></div></CardContent></Card>
             
             <Card>
-              <CardHeader><CardTitle className="flex gap-2"><Banknote className="h-5 w-5"/> Rekap Gaji</CardTitle></CardHeader>
-              <CardContent className="p-0"><Table><TableHeader className="bg-green-50"><TableRow><TableHead>Nama</TableHead><TableHead className="text-center">Hadir</TableHead><TableHead className="text-center">Lembur</TableHead><TableHead className="text-right">Gaji Pokok</TableHead><TableHead className="text-right">Upah Lembur</TableHead><TableHead className="text-right font-bold">TOTAL</TableHead></TableRow></TableHeader>
-                <TableBody>{salarySummary.map((d, i) => (
+              <CardHeader><CardTitle className="flex gap-2"><Users className="h-5 w-5"/> Rekap Kehadiran (Tanpa Gaji)</CardTitle></CardHeader>
+              <CardContent className="p-0"><Table><TableHeader className="bg-green-50"><TableRow><TableHead>Nama</TableHead><TableHead className="text-center">Hadir</TableHead><TableHead className="text-center">Izin</TableHead><TableHead className="text-center">Alpha</TableHead><TableHead className="text-center">Total Lembur</TableHead></TableRow></TableHeader>
+                <TableBody>{attendanceSummary.map((d, i) => (
                   <TableRow key={i}>
                     <TableCell className="font-medium">{d.name}</TableCell>
-                    <TableCell className="text-center">{d.hadir} Hari</TableCell>
-                    <TableCell className="text-center">{d.lemburJam} Jam</TableCell>
-                    <TableCell className="text-right">{formatRp(d.totalGajiPokok)}</TableCell>
-                    <TableCell className="text-right">{formatRp(d.totalGajiLembur)}</TableCell>
-                    <TableCell className="text-right font-bold text-green-700 bg-green-50/30">{formatRp(d.grandTotal)}</TableCell>
+                    <TableCell className="text-center"><Badge className="bg-green-100 text-green-800">{d.hadir}</Badge></TableCell>
+                    <TableCell className="text-center">{d.izin}</TableCell>
+                    <TableCell className="text-center text-red-500 font-bold">{d.alpha}</TableCell>
+                    <TableCell className="text-center font-bold text-blue-600">{d.lemburJam} Jam</TableCell>
                   </TableRow>
                 ))}</TableBody>
               </Table></CardContent>
             </Card>
           </div>
-        )}
-
-        {/* TAB 3: SETTING GAJI (Langsung Edit Customer Master) */}
-        {activeTab === "gaji" && (
-          <Card>
-            <CardHeader><CardTitle className="flex gap-2"><Users className="h-5 w-5"/> Atur Gaji Karyawan (Pelanggan)</CardTitle></CardHeader>
-            <CardContent><Table><TableHeader><TableRow><TableHead>Nama Karyawan</TableHead><TableHead>Gaji Pokok / Hari</TableHead><TableHead>Lembur / Jam</TableHead><TableHead className="text-center">Aksi</TableHead></TableRow></TableHeader>
-              <TableBody>{employees.map(emp => (
-                <TableRow key={emp.id}>
-                  <TableCell className="font-bold">{emp.customer_name}</TableCell>
-                  <TableCell>{editingId === emp.id ? <Input type="number" value={editBase} onChange={e => setEditBase(e.target.value)}/> : formatRp(emp.daily_base_salary || 0)}</TableCell>
-                  <TableCell>{editingId === emp.id ? <Input type="number" value={editOvertime} onChange={e => setEditOvertime(e.target.value)}/> : formatRp(emp.overtime_rate || 0)}</TableCell>
-                  <TableCell className="text-center">
-                    {editingId === emp.id ? (
-                      <Button size="sm" onClick={() => updateSalary(emp.id)} className="bg-green-600">Simpan</Button>
-                    ) : (
-                      <Button size="sm" variant="ghost" onClick={() => { setEditingId(emp.id); setEditBase(emp.daily_base_salary?.toString()||"0"); setEditOvertime(emp.overtime_rate?.toString()||"0"); }}><Edit className="h-4 w-4"/></Button>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}</TableBody>
-            </Table></CardContent>
-          </Card>
         )}
       </div>
     </Layout>
