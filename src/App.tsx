@@ -8,6 +8,7 @@ import Preorder from "./pages/Preorder";
 import Pembelian from "./pages/Pembelian";
 import Penjualan from "./pages/Penjualan";
 import LaporanPenjualan from "./pages/LaporanPenjualan";
+import Karyawan from "./pages/Karyawan";
 import DataMaster from "./pages/DataMaster";
 import Operasional from "./pages/Operasional"; 
 import NotFound from "./pages/NotFound";
@@ -27,6 +28,7 @@ const App = () => (
           <Route path="/penjualan" element={<Penjualan />} />
           <Route path="/operasional" element={<Operasional />} />
           <Route path="/laporan-penjualan" element={<LaporanPenjualan />} />
+          <Route path="/karyawan" element={<Karyawan />} />
           <Route path="/data-master" element={<DataMaster />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
