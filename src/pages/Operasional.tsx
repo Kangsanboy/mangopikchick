@@ -8,29 +8,42 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator"; 
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Plus, Loader2, Trash2, Wallet, CalendarDays } from "lucide-react";
+import { Plus, Loader2, Trash2, Wallet, CalendarDays, User } from "lucide-react";
 
 interface ExpenseData {
   id: string;
   category_name: string;
   note: string;
   amount: number;
+  employee_id?: string;
+  customer_master?: { customer_name: string }; // Join relation
+}
+
+interface CustomerEmployee {
+  id: string;
+  customer_name: string;
 }
 
 const Operasional = () => {
   const { toast } = useToast();
-  // PERBAIKAN: Default WIB
   const [selectedDate, setSelectedDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }));
   const [loading, setLoading] = useState(false);
   
   const [categories, setCategories] = useState<any[]>([]);
   const [expenses, setExpenses] = useState<ExpenseData[]>([]);
+  const [employees, setEmployees] = useState<CustomerEmployee[]>([]); // Data Karyawan
 
+  // Form States
   const [catName, setCatName] = useState("");
   const [note, setNote] = useState("");
   const [amount, setAmount] = useState("");
+  const [selectedEmployee, setSelectedEmployee] = useState<string>(""); // State Employee terpilih
 
-  useEffect(() => { loadCategories(); }, []);
+  useEffect(() => { 
+    loadCategories(); 
+    loadEmployees();
+  }, []);
+  
   useEffect(() => { loadExpenses(); }, [selectedDate]);
 
   const loadCategories = async () => {
@@ -38,10 +51,15 @@ const Operasional = () => {
     if (!error) setCategories(data || []);
   };
 
+  const loadEmployees = async () => {
+    const { data } = await supabase.from('customer_master').select('id, customer_name').eq('is_active', true).order('customer_name');
+    setEmployees(data || []);
+  };
+
   const loadExpenses = async () => {
     const { data, error } = await supabase
       .from('operational_expenses')
-      .select('*')
+      .select('*, customer_master(customer_name)') // Join ambil nama karyawan
       .eq('date', selectedDate)
       .order('created_at', { ascending: false });
       
@@ -52,6 +70,9 @@ const Operasional = () => {
 
   const handleCategoryChange = (name: string) => {
     setCatName(name);
+    // Reset employee kalau ganti kategori
+    setSelectedEmployee("");
+    
     const selected = categories.find(c => c.name === name);
     if (selected && selected.default_amount) {
       setAmount(selected.default_amount.toString());
@@ -65,6 +86,14 @@ const Operasional = () => {
       toast({ title: "Error", description: "Lengkapi data kategori dan nominal!", variant: "destructive" }); 
       return; 
     }
+
+    // Validasi: Kalau kategori Gaji, wajib pilih karyawan
+    const isSalaryCategory = catName.toLowerCase().includes("gaji");
+    if (isSalaryCategory && !selectedEmployee) {
+      toast({ title: "Error", description: "Pilih karyawan untuk kategori Gaji!", variant: "destructive" });
+      return;
+    }
+
     setLoading(true);
     
     try {
@@ -72,15 +101,18 @@ const Operasional = () => {
         category_name: catName,
         note: note,
         amount: parseInt(amount),
-        date: selectedDate
+        date: selectedDate,
+        employee_id: selectedEmployee || null // Masukkan ID karyawan jika ada
       });
 
       if (error) throw error;
 
       toast({ title: "Berhasil", description: "Pengeluaran berhasil dicatat." });
+      // Reset Form
       setCatName(""); 
       setNote(""); 
       setAmount("");
+      setSelectedEmployee("");
       loadExpenses();
     } catch (error: any) {
       toast({ title: "Gagal", description: error.message, variant: "destructive" });
@@ -104,11 +136,14 @@ const Operasional = () => {
   const formatRp = (n: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n);
   const totalExpense = expenses.reduce((sum, item) => sum + item.amount, 0);
 
+  // Cek apakah kategori yang dipilih berhubungan dengan Gaji
+  const isSalaryInput = catName.toLowerCase().includes("gaji");
+
   return (
     <Layout>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <div><h1 className="text-3xl font-bold text-gray-900">Operasional</h1><p className="text-gray-600 mt-1">Catat biaya operasional harian</p></div>
+          <div><h1 className="text-3xl font-bold text-gray-900">Operasional & Gaji</h1><p className="text-gray-600 mt-1">Catat biaya operasional dan penggajian harian</p></div>
         </div>
 
         <Card>
@@ -120,19 +155,50 @@ const Operasional = () => {
               <Input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="w-auto bg-white" />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-              <div>
-                <Label>Kategori</Label>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Kategori */}
+              <div className="space-y-2">
+                <Label>Kategori Pengeluaran</Label>
                 <Select value={catName} onValueChange={handleCategoryChange}>
-                  <SelectTrigger><SelectValue placeholder="Pilih Kategori" /></SelectTrigger>
-                  <SelectContent>{categories.map(c => <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>)}</SelectContent>
+                  <SelectTrigger><SelectValue placeholder="Pilih Kategori (misal: Bensin, Gaji Pokok)" /></SelectTrigger>
+                  <SelectContent>
+                    {categories.map(c => <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>)}
+                    {/* Opsi Hardcode jika belum ada di database master kategori */}
+                    <SelectItem value="Gaji Pokok Karyawan">Gaji Pokok Karyawan</SelectItem>
+                    <SelectItem value="Gaji Lembur Karyawan">Gaji Lembur Karyawan</SelectItem>
+                    <SelectItem value="Bonus Karyawan">Bonus Karyawan</SelectItem>
+                  </SelectContent>
                 </Select>
               </div>
-              <div className="md:col-span-2"><Label>Keterangan (Opsional)</Label><Input placeholder="Contoh: Beli bensin, Rokok Surya 1 slop" value={note} onChange={e => setNote(e.target.value)} /></div>
-              <div><Label>Nominal (Rp)</Label><Input type="number" placeholder="0" value={amount} onChange={e => setAmount(e.target.value)} /></div>
+
+              {/* Dropdown Karyawan (Hanya muncul jika kategori mengandung kata 'Gaji' atau 'Bonus') */}
+              {isSalaryInput && (
+                <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
+                  <Label className="text-blue-700 font-bold">Pilih Karyawan Penerima</Label>
+                  <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
+                    <SelectTrigger className="bg-blue-50 border-blue-200"><SelectValue placeholder="-- Pilih Karyawan --" /></SelectTrigger>
+                    <SelectContent>
+                      {employees.map(emp => (
+                        <SelectItem key={emp.id} value={emp.id}>{emp.customer_name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label>Nominal (Rp)</Label>
+                <Input type="number" placeholder="0" value={amount} onChange={e => setAmount(e.target.value)} />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Keterangan (Opsional)</Label>
+                <Input placeholder="Contoh: Lembur malam minggu" value={note} onChange={e => setNote(e.target.value)} />
+              </div>
             </div>
+
             <Button onClick={addExpense} disabled={loading} className="w-full mt-4 bg-orange-600 hover:bg-orange-700">
-              {loading ? <Loader2 className="animate-spin mr-2"/> : <Plus className="mr-2 h-4 w-4"/>} Simpan Pengeluaran
+              {loading ? <Loader2 className="animate-spin mr-2"/> : <Plus className="mr-2 h-4 w-4"/>} Simpan Transaksi
             </Button>
           </CardContent>
         </Card>
@@ -145,7 +211,18 @@ const Operasional = () => {
                 <div className="space-y-2">
                   {expenses.map((e) => (
                     <div key={e.id} className="flex items-center justify-between p-3 bg-white border rounded-lg hover:shadow-sm transition-all">
-                      <div><p className="font-bold text-gray-800">{e.category_name}</p><p className="text-sm text-gray-500">{e.note || "-"}</p></div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <p className="font-bold text-gray-800">{e.category_name}</p>
+                          {/* Jika ada karyawan, tampilkan badge nama */}
+                          {e.customer_master && (
+                            <div className="flex items-center gap-1 bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-bold">
+                              <User className="h-3 w-3"/> {e.customer_master.customer_name}
+                            </div>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-500">{e.note || "-"}</p>
+                      </div>
                       <div className="flex items-center gap-4">
                         <span className="font-bold text-orange-700">{formatRp(e.amount)}</span>
                         <Button size="icon" variant="outline" className="h-8 w-8 text-red-500 hover:bg-red-50 border-red-200" onClick={() => deleteExpense(e.id)}><Trash2 className="h-4 w-4"/></Button>
