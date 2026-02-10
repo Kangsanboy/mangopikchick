@@ -202,26 +202,29 @@ const LaporanPenjualan = () => {
 
   const formatCurrency = (val: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(val);
   
-  // --- HITUNG SUMMARY (REVISI KHUSUS) ---
+  // --- HITUNG SUMMARY (LOGIKA BARU YANG LEBIH PINTAR) ---
   let calculatedTotalEkor = 0;
-  let calculatedTotalAti = 0; // Ganti dari Total Pcs jadi Total Ati
+  let calculatedTotalAti = 0;
 
-  // Kita iterasi item per item di dalam transaksi yang terfilter
+  // Keyword yang DIANGGAP BUKAN AYAM UTUH (Parting/Jeroan)
+  const partingKeywords = ['kepala', 'ceker', 'sayap', 'paha', 'dada', 'ati', 'ampela', 'usus', 'kulit', 'jantung', 'bon', 'tulangan'];
+
   filteredTransactions.forEach(tx => {
     tx.items.forEach(item => {
-      // Logic deteksi Pcs vs Kg (Ekor)
-      const isPcs = item.unit_type === 'pcs' || (item.weight === 0 && item.quantity > 0);
+      const pName = item.product_type.toLowerCase();
       
-      if (!isPcs) {
-        // Ini masuk Total Ekor (Ayam Utuh / Hidup / Kiloan)
+      // 1. Cek apakah ini Ati?
+      if (pName.includes('ati')) {
+         calculatedTotalAti += (item.quantity || 0);
+      }
+
+      // 2. Cek apakah ini Ayam Utuh?
+      // Syarat: TIDAK mengandung kata-kata parting/jeroan
+      const isParting = partingKeywords.some(keyword => pName.includes(keyword));
+      
+      if (!isParting) {
+        // Aman, ini dianggap Ayam Utuh (GB 1, GB 2, TU Besar, dll)
         calculatedTotalEkor += (item.quantity || 0);
-      } else {
-        // Ini barang Pcs. Kita cek apakah namanya mengandung "Ati"?
-        // Gunakan toLowerCase() biar aman (Ati, ati, ATI semua masuk)
-        if (item.product_type.toLowerCase().includes('ati')) {
-           calculatedTotalAti += (item.quantity || 0);
-        }
-        // Ceker, Kepala, Usus dll otomatis DIABAIKAN dari kedua card ini
       }
     });
   });
