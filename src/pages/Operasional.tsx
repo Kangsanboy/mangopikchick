@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator"; 
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Plus, Loader2, Trash2, Wallet, CalendarDays, User } from "lucide-react";
+import { Plus, Loader2, Trash2, Wallet, CalendarDays, User, RefreshCcw } from "lucide-react";
 
 interface ExpenseData {
   id: string;
@@ -16,7 +16,7 @@ interface ExpenseData {
   note: string;
   amount: number;
   employee_id?: string;
-  customer_master?: { customer_name: string }; // Join relation
+  customer_master?: { customer_name: string }; 
 }
 
 interface CustomerEmployee {
@@ -31,13 +31,12 @@ const Operasional = () => {
   
   const [categories, setCategories] = useState<any[]>([]);
   const [expenses, setExpenses] = useState<ExpenseData[]>([]);
-  const [employees, setEmployees] = useState<CustomerEmployee[]>([]); // Data Karyawan
+  const [employees, setEmployees] = useState<CustomerEmployee[]>([]);
 
-  // Form States
   const [catName, setCatName] = useState("");
   const [note, setNote] = useState("");
   const [amount, setAmount] = useState("");
-  const [selectedEmployee, setSelectedEmployee] = useState<string>(""); // State Employee terpilih
+  const [selectedEmployee, setSelectedEmployee] = useState<string>("");
 
   useEffect(() => { 
     loadCategories(); 
@@ -59,7 +58,7 @@ const Operasional = () => {
   const loadExpenses = async () => {
     const { data, error } = await supabase
       .from('operational_expenses')
-      .select('*, customer_master(customer_name)') // Join ambil nama karyawan
+      .select('*, customer_master(customer_name)')
       .eq('date', selectedDate)
       .order('created_at', { ascending: false });
       
@@ -70,7 +69,6 @@ const Operasional = () => {
 
   const handleCategoryChange = (name: string) => {
     setCatName(name);
-    // Reset employee kalau ganti kategori
     setSelectedEmployee("");
     
     const selected = categories.find(c => c.name === name);
@@ -87,28 +85,48 @@ const Operasional = () => {
       return; 
     }
 
-    // Validasi: Kalau kategori Gaji, wajib pilih karyawan
-    const isSalaryCategory = catName.toLowerCase().includes("gaji");
-    if (isSalaryCategory && !selectedEmployee) {
+    const isSalaryInput = catName.toLowerCase().includes("gaji");
+    if (isSalaryInput && !selectedEmployee) {
       toast({ title: "Error", description: "Pilih karyawan untuk kategori Gaji!", variant: "destructive" });
       return;
     }
 
     setLoading(true);
+    const nominal = parseInt(amount);
     
     try {
+      // 1. Simpan Transaksi Pengeluaran
       const { error } = await supabase.from('operational_expenses').insert({
         category_name: catName,
         note: note,
-        amount: parseInt(amount),
+        amount: nominal,
         date: selectedDate,
-        employee_id: selectedEmployee || null // Masukkan ID karyawan jika ada
+        employee_id: selectedEmployee || null 
       });
 
       if (error) throw error;
 
+      // 2. FITUR UPDATE OTOMATIS DATA MASTER (Sesuai Request)
+      if (selectedEmployee) {
+        if (catName.toLowerCase().includes("pokok") || catName.toLowerCase().includes("harian")) {
+          // Update Gaji Pokok di Master Data
+          await supabase.from('customer_master')
+            .update({ daily_base_salary: nominal })
+            .eq('id', selectedEmployee);
+            
+          toast({ title: "Data Master Updated", description: `Gaji Pokok karyawan diperbarui jadi ${formatRp(nominal)}` });
+        } 
+        else if (catName.toLowerCase().includes("lembur")) {
+          // Update Rate Lembur di Master Data
+          await supabase.from('customer_master')
+            .update({ overtime_rate: nominal })
+            .eq('id', selectedEmployee);
+
+          toast({ title: "Data Master Updated", description: `Rate Lembur karyawan diperbarui jadi ${formatRp(nominal)}` });
+        }
+      }
+
       toast({ title: "Berhasil", description: "Pengeluaran berhasil dicatat." });
-      // Reset Form
       setCatName(""); 
       setNote(""); 
       setAmount("");
@@ -136,8 +154,7 @@ const Operasional = () => {
   const formatRp = (n: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n);
   const totalExpense = expenses.reduce((sum, item) => sum + item.amount, 0);
 
-  // Cek apakah kategori yang dipilih berhubungan dengan Gaji
-  const isSalaryInput = catName.toLowerCase().includes("gaji");
+  const isSalaryInput = catName.toLowerCase().includes("gaji") || catName.toLowerCase().includes("bonus");
 
   return (
     <Layout>
@@ -156,14 +173,12 @@ const Operasional = () => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Kategori */}
               <div className="space-y-2">
                 <Label>Kategori Pengeluaran</Label>
                 <Select value={catName} onValueChange={handleCategoryChange}>
                   <SelectTrigger><SelectValue placeholder="Pilih Kategori (misal: Bensin, Gaji Pokok)" /></SelectTrigger>
                   <SelectContent>
                     {categories.map(c => <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>)}
-                    {/* Opsi Hardcode jika belum ada di database master kategori */}
                     <SelectItem value="Gaji Pokok Karyawan">Gaji Pokok Karyawan</SelectItem>
                     <SelectItem value="Gaji Lembur Karyawan">Gaji Lembur Karyawan</SelectItem>
                     <SelectItem value="Bonus Karyawan">Bonus Karyawan</SelectItem>
@@ -171,7 +186,6 @@ const Operasional = () => {
                 </Select>
               </div>
 
-              {/* Dropdown Karyawan (Hanya muncul jika kategori mengandung kata 'Gaji' atau 'Bonus') */}
               {isSalaryInput && (
                 <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
                   <Label className="text-blue-700 font-bold">Pilih Karyawan Penerima</Label>
@@ -183,6 +197,7 @@ const Operasional = () => {
                       ))}
                     </SelectContent>
                   </Select>
+                  <p className="text-[10px] text-gray-500">*Nominal yang diinput otomatis jadi standar gaji baru karyawan ini.</p>
                 </div>
               )}
 
@@ -214,7 +229,6 @@ const Operasional = () => {
                       <div>
                         <div className="flex items-center gap-2">
                           <p className="font-bold text-gray-800">{e.category_name}</p>
-                          {/* Jika ada karyawan, tampilkan badge nama */}
                           {e.customer_master && (
                             <div className="flex items-center gap-1 bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-bold">
                               <User className="h-3 w-3"/> {e.customer_master.customer_name}
