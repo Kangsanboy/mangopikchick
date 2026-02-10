@@ -12,15 +12,14 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { Users, CalendarCheck, Banknote, Save, Loader2, Check, X, Minus, ChevronLeft, ChevronRight, Edit, Trash2, Wallet } from "lucide-react";
 
-interface CustomerEmployee {
+interface Employee {
   id: string;
-  customer_name: string;
-  daily_base_salary: number; // Referensi Standar
+  name: string;
 }
 
 interface AttendanceLog {
   id: string;
-  customer_id: string;
+  employee_id: string;
   date: string;
   status: 'Hadir' | 'Izin' | 'Alpha';
   overtime_hours: number;
@@ -38,7 +37,7 @@ const Karyawan = () => {
   const [loading, setLoading] = useState(false);
 
   // --- STATES ---
-  const [employees, setEmployees] = useState<CustomerEmployee[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
   
   // State Tanggal
   const [absenDate, setAbsenDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }));
@@ -73,7 +72,8 @@ const Karyawan = () => {
   // --- 1. LOAD DATA ---
   const loadEmployees = async () => {
     setLoading(true);
-    const { data } = await supabase.from('customer_master').select('id, customer_name, daily_base_salary').eq('is_active', true).order('customer_name');
+    // Fetch dari tabel employees
+    const { data } = await supabase.from('employees').select('id, name').eq('is_active', true).order('name');
     setEmployees(data || []);
     
     const initialInput: any = {};
@@ -99,7 +99,7 @@ const Karyawan = () => {
     const { data: logs } = await supabase.from('attendance_logs').select('*').eq('date', absenDate);
     if (logs && logs.length > 0) {
       const loaded: any = {};
-      logs.forEach(log => { loaded[log.customer_id] = { status: log.status }; });
+      logs.forEach(log => { loaded[log.employee_id] = { status: log.status }; });
       setInputAttendance(prev => ({ ...prev, ...loaded }));
     } else {
       const reset: any = {};
@@ -155,13 +155,14 @@ const Karyawan = () => {
   const saveAttendance = async () => {
     setLoading(true);
     const updates = employees.map(emp => ({
-      customer_id: emp.id,
+      employee_id: emp.id, // Pakai employee_id baru
       date: absenDate,
       status: inputAttendance[emp.id]?.status || 'Hadir',
-      overtime_hours: 0 // Tidak pakai jam lembur lagi
+      overtime_hours: 0 
     }));
 
-    const { error } = await supabase.from('attendance_logs').upsert(updates, { onConflict: 'customer_id,date' });
+    // Upsert berdasarkan employee_id
+    const { error } = await supabase.from('attendance_logs').upsert(updates, { onConflict: 'employee_id,date' });
     if (error) toast({ title: "Gagal", description: error.message, variant: "destructive" });
     else { toast({ title: "Berhasil", description: "Absensi tersimpan!" }); loadWeeklyData(); loadDailyRealData(); }
     setLoading(false);
@@ -196,10 +197,10 @@ const Karyawan = () => {
               <TableBody>
                 {employees.map(emp => (
                   <TableRow key={emp.id} className="hover:bg-gray-50">
-                    <TableCell className="font-medium border-r bg-gray-50/50">{emp.customer_name}</TableCell>
+                    <TableCell className="font-medium border-r bg-gray-50/50">{emp.name}</TableCell>
                     {weekDays.map((d, i) => {
                       const dateStr = d.toLocaleDateString('en-CA');
-                      const log = weeklyLogs.find(l => l.customer_id === emp.id && l.date === dateStr);
+                      const log = weeklyLogs.find(l => l.employee_id === emp.id && l.date === dateStr);
                       let Icon = <Minus className="h-3 w-3 text-gray-200 mx-auto" />;
                       let bgColor = "cursor-pointer hover:bg-gray-100"; 
                       if (log) {
@@ -233,7 +234,7 @@ const Karyawan = () => {
                     const status = inputAttendance[emp.id]?.status || 'Hadir';
                     return (
                       <TableRow key={emp.id} className="hover:bg-blue-50/30 transition-colors">
-                        <TableCell className="font-bold text-gray-700">{emp.customer_name}</TableCell>
+                        <TableCell className="font-bold text-gray-700">{emp.name}</TableCell>
                         <TableCell className="text-center">
                           <Select value={status} onValueChange={(v) => handleInputChange(emp.id, v)}>
                             <SelectTrigger className={`h-8 w-full border-0 shadow-sm mx-auto ${status === 'Hadir' ? 'bg-green-100 text-green-800 font-medium' : status === 'Alpha' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}`}><SelectValue/></SelectTrigger>
@@ -263,7 +264,6 @@ const Karyawan = () => {
                 <TableHeader className="bg-gray-100"><TableRow><TableHead>Nama</TableHead><TableHead className="text-right">Gaji Pokok</TableHead><TableHead className="text-right">Lembur</TableHead><TableHead className="text-right font-bold">Total</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {employees.map(emp => {
-                    // Filter pengeluaran hari ini buat karyawan ini
                     const myExpenses = dailyExpenses.filter(e => e.employee_id === emp.id);
                     let receivedPokok = 0;
                     let receivedLembur = 0;
@@ -273,26 +273,21 @@ const Karyawan = () => {
                       if (cat.includes('lembur') || cat.includes('overtime') || cat.includes('bonus')) {
                         receivedLembur += exp.amount;
                       } else {
-                        // Sisanya anggap pokok (termasuk kategori "gaji pokok", "harian", dll)
                         receivedPokok += exp.amount;
                       }
                     });
 
                     const totalReceived = receivedPokok + receivedLembur;
                     
-                    // Kalau 0 semua, jangan tampilkan row? Atau tampilkan "-" biar tau belum digaji?
-                    // Kita tampilkan semua biar tau siapa yang belum digaji.
-                    
                     return (
                       <TableRow key={emp.id} className="hover:bg-emerald-50/30">
-                        <TableCell className="font-medium text-gray-700">{emp.customer_name}</TableCell>
+                        <TableCell className="font-medium text-gray-700">{emp.name}</TableCell>
                         <TableCell className={`text-right ${receivedPokok > 0 ? 'text-gray-900' : 'text-gray-300'}`}>{receivedPokok > 0 ? formatRp(receivedPokok) : "-"}</TableCell>
                         <TableCell className={`text-right ${receivedLembur > 0 ? 'text-orange-600 font-medium' : 'text-gray-300'}`}>{receivedLembur > 0 ? formatRp(receivedLembur) : "-"}</TableCell>
                         <TableCell className={`text-right font-bold ${totalReceived > 0 ? 'text-emerald-700' : 'text-gray-300'}`}>{totalReceived > 0 ? formatRp(totalReceived) : "-"}</TableCell>
                       </TableRow>
                     )
                   })}
-                  {/* TOTAL KESELURUHAN */}
                   <TableRow className="bg-gray-50 border-t-2 border-gray-200">
                     <TableCell className="font-bold text-gray-900">TOTAL</TableCell>
                     <TableCell colSpan={3} className="text-right font-bold text-lg text-emerald-800">
