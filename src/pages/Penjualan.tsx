@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { SaleData, TABLE_NAMES } from "@/types/database";
-import { Plus, Loader2, ShoppingCart, Trash2, Save, Edit, CalendarDays } from "lucide-react";
+import { Plus, Loader2, ShoppingCart, Trash2, Save, Edit, CalendarDays, PlusCircle } from "lucide-react";
 
 // Interface
 interface CustomerMaster { id: string; customer_name: string; default_quantity: number; }
@@ -23,12 +23,11 @@ interface ProductMaster {
   unit_type: string; 
 }
 interface CartItem { tempId: number; productName: string; productType: string; quantity: number; weight: number; pricePerKg: number; totalPrice: number; unitType: string; }
-interface TransactionGroup { id: string; customer_name: string; date: string; total_price: number; items: ExtendedSaleData[]; }
-interface ExtendedSaleData extends SaleData { unit_type?: string; } 
+interface TransactionGroup { id: string; customer_name: string; date: string; created_at: string; total_price: number; items: ExtendedSaleData[]; }
+interface ExtendedSaleData extends SaleData { unit_type?: string; }
 
 const Penjualan = () => {
   const { toast } = useToast();
-  // PERBAIKAN: Tanda kurung sudah lengkap sekarang!
   const [selectedDate, setSelectedDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }));
   
   const [products, setProducts] = useState<ProductMaster[]>([]);
@@ -36,6 +35,7 @@ const Penjualan = () => {
   const [groupedSales, setGroupedSales] = useState<TransactionGroup[]>([]); 
   const [rawSales, setRawSales] = useState<ExtendedSaleData[]>([]); 
   
+  // Input Form Utama
   const [customerName, setCustomerName] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<ProductMaster | null>(null);
   const [quantity, setQuantity] = useState("");
@@ -44,10 +44,17 @@ const Penjualan = () => {
 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // Edit Item State
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editData, setEditData] = useState<ExtendedSaleData | null>(null);
   const [editLoading, setEditLoading] = useState(false);
 
+  // Add Item (Susulan) State
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [targetGroup, setTargetGroup] = useState<TransactionGroup | null>(null);
+  // Reuse state form utama untuk add susulan biar hemat kodingan, tapi kita butuh handle khusus
+  
   useEffect(() => { loadMasterData(); }, []);
   useEffect(() => { loadSalesHistory(); }, [selectedDate]);
 
@@ -64,7 +71,14 @@ const Penjualan = () => {
       const groups: { [key: string]: TransactionGroup } = {};
       data.forEach((item: ExtendedSaleData) => {
         const groupKey = `${item.customer_name}-${item.created_at}`;
-        if (!groups[groupKey]) groups[groupKey] = { id: groupKey, customer_name: item.customer_name, date: item.date, total_price: 0, items: [] };
+        if (!groups[groupKey]) groups[groupKey] = { 
+          id: groupKey, 
+          customer_name: item.customer_name, 
+          date: item.date, 
+          created_at: item.created_at, // Simpan created_at untuk grouping add item
+          total_price: 0, 
+          items: [] 
+        };
         groups[groupKey].items.push(item);
         groups[groupKey].total_price += item.total_price;
       });
@@ -78,7 +92,8 @@ const Penjualan = () => {
     if (prod) {
       setPricePerKg(prod.price_per_kg.toString()); 
       setQuantity(""); setWeight("");
-      if (prod.category === 'utuh' && prod.unit_type !== 'pcs' && customerName) {
+      // Auto fill default qty if main form
+      if (!isAddOpen && prod.category === 'utuh' && prod.unit_type !== 'pcs' && customerName) {
         const cust = masterCustomers.find(c => c.customer_name === customerName);
         if (cust && cust.default_quantity) setQuantity(cust.default_quantity.toString());
       }
@@ -134,12 +149,24 @@ const Penjualan = () => {
     } finally { setLoading(false); }
   };
 
+  // --- FITUR HAPUS PER TRANSAKSI ---
   const handleDeleteGroup = async (group: TransactionGroup) => {
-    if (!confirm(`Hapus transaksi ${group.customer_name}?`)) return;
+    if (!confirm(`Hapus SELURUH transaksi ${group.customer_name}?`)) return;
     await supabase.from(TABLE_NAMES.SALES).delete().in('id', group.items.map(i => i.id));
     loadSalesHistory();
   };
 
+  // --- FITUR HAPUS PER ITEM ---
+  const handleDeleteItem = async (itemId: string) => {
+    if (!confirm("Hapus item ini dari nota?")) return;
+    const { error } = await supabase.from(TABLE_NAMES.SALES).delete().eq('id', itemId);
+    if (!error) {
+      toast({ title: "Item Dihapus" });
+      loadSalesHistory();
+    }
+  };
+
+  // --- FITUR EDIT ITEM ---
   const openEditModal = (sale: ExtendedSaleData) => { setEditData({ ...sale }); setIsEditOpen(true); };
   
   const handleEditSave = async () => {
@@ -159,6 +186,51 @@ const Penjualan = () => {
     toast({ title: "Update Berhasil" });
   };
 
+  // --- FITUR TAMBAH BARANG SUSULAN ---
+  const openAddModal = (group: TransactionGroup) => {
+    setTargetGroup(group);
+    // Reset form inputs
+    setSelectedProduct(null); setQuantity(""); setWeight(""); setPricePerKg("");
+    setIsAddOpen(true);
+  };
+
+  const handleAddSave = async () => {
+    if (!targetGroup || !selectedProduct) return;
+    setEditLoading(true);
+    
+    const qtyNum = quantity ? parseInt(quantity) : 0;
+    const weightNum = weight ? parseFloat(weight) : 0;
+    const priceNum = pricePerKg ? parseFloat(pricePerKg) : 0;
+    
+    const isPcs = selectedProduct.unit_type === 'pcs';
+    const total = isPcs ? Math.round(qtyNum * priceNum) : Math.round(weightNum * priceNum);
+
+    // Gunakan created_at DARI GRUP AGAR MASUK NOTA YANG SAMA
+    const payload = {
+      date: targetGroup.date,
+      customer_name: targetGroup.customer_name,
+      product_type: selectedProduct.product_name,
+      quantity: qtyNum,
+      weight: isPcs ? 0 : weightNum,
+      price_per_kg: priceNum,
+      total_price: total,
+      payment_status: 'Belum Lunas', // Default status item baru
+      created_at: targetGroup.created_at, // KUNCI: Samakan timestamp biar satu grup
+      unit_type: selectedProduct.unit_type || 'kg'
+    };
+
+    const { error } = await supabase.from(TABLE_NAMES.SALES).insert(payload);
+    
+    if (!error) {
+      toast({ title: "Berhasil", description: "Item ditambahkan ke nota." });
+      setIsAddOpen(false);
+      loadSalesHistory();
+    } else {
+      toast({ title: "Gagal", description: error.message, variant: "destructive" });
+    }
+    setEditLoading(false);
+  };
+
   const formatCurrency = (val: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(val);
   const grandTotal = cart.reduce((sum, item) => sum + item.totalPrice, 0);
   
@@ -171,7 +243,7 @@ const Penjualan = () => {
       <div className="space-y-6 pb-20">
         <h1 className="text-3xl font-bold text-gray-900">Penjualan (Kasir)</h1>
 
-        {/* INPUT */}
+        {/* INPUT TRANSAKSI BARU */}
         <Card>
           <CardContent className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
             <div><Label>Tanggal</Label><Input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} /></div>
@@ -182,7 +254,7 @@ const Penjualan = () => {
           </CardContent>
         </Card>
 
-        {customerName && (
+        {customerName && !isAddOpen && (
           <Card className="border-t-4 border-t-purple-500 shadow-md">
             <CardHeader className="pb-2"><CardTitle className="text-lg flex justify-between"><span>Input Barang</span>{selectedProduct && <div className="flex gap-2"><Badge>{selectedProduct.category}</Badge><Badge variant="outline">{selectedProduct.unit_type === 'pcs' ? 'Satuan (Pcs)' : 'Kiloan (Kg)'}</Badge></div>}</CardTitle></CardHeader>
             <CardContent className="space-y-4">
@@ -226,24 +298,42 @@ const Penjualan = () => {
                   {groupedSales.map((group) => (
                     <div key={group.id} className="border rounded-lg p-4 bg-white shadow-sm hover:shadow-md transition-all">
                       <div className="flex justify-between items-start mb-2">
-                        <h3 className="font-bold text-lg text-gray-900">{group.customer_name}</h3>
-                        <div className="text-right"><span className="block font-bold text-green-700 text-lg">{formatCurrency(group.total_price)}</span><span className="text-xs text-gray-400">{new Date(group.items[0].created_at).toLocaleTimeString('id-ID')}</span></div>
+                        <div>
+                          <h3 className="font-bold text-lg text-gray-900">{group.customer_name}</h3>
+                          <span className="text-xs text-gray-400">{new Date(group.created_at).toLocaleTimeString('id-ID')}</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="block font-bold text-green-700 text-lg">{formatCurrency(group.total_price)}</span>
+                          {/* TOMBOL TAMBAH BARANG SUSULAN */}
+                          <Button size="sm" variant="outline" className="h-7 text-xs mt-1 border-dashed border-blue-300 text-blue-600 hover:bg-blue-50" onClick={() => openAddModal(group)}>
+                            <PlusCircle className="h-3 w-3 mr-1" /> Tambah Barang
+                          </Button>
+                        </div>
                       </div>
                       <div className="bg-gray-50 rounded p-3 text-sm space-y-2">
                         {group.items.map((item) => (
                           <div key={item.id} className="flex justify-between border-b border-gray-200 last:border-0 pb-1 last:pb-0 items-center">
                              <div className="flex-1"><span className="font-medium">{item.product_type}</span> <span className="text-gray-500 ml-2 text-xs">
-                                 {/* TAMPILAN PINTAR: Cek apakah Pcs atau Kg */}
                                  {item.unit_type === 'pcs' || (item.weight === 0 && item.quantity > 0) 
                                    ? `${item.quantity} Pcs` 
                                    : `${item.weight} Kg ${item.quantity > 0 ? `(${item.quantity} Ekor)` : ''}`
                                  }
                                </span></div>
-                             <div className="flex items-center gap-3"><span className="text-gray-700 font-medium">{formatCurrency(item.total_price)}</span><button onClick={() => openEditModal(item)} className="text-blue-500 hover:text-blue-700"><Edit className="h-3 w-3"/></button></div>
+                             <div className="flex items-center gap-3">
+                               <span className="text-gray-700 font-medium">{formatCurrency(item.total_price)}</span>
+                               {/* TOMBOL EDIT ITEM */}
+                               <button onClick={() => openEditModal(item)} className="text-blue-500 hover:text-blue-700 bg-blue-50 p-1 rounded"><Edit className="h-3 w-3"/></button>
+                               {/* TOMBOL HAPUS ITEM (BARU) */}
+                               <button onClick={() => handleDeleteItem(item.id)} className="text-red-500 hover:text-red-700 bg-red-50 p-1 rounded"><Trash2 className="h-3 w-3"/></button>
+                             </div>
                           </div>
                         ))}
                       </div>
-                      <div className="mt-3 flex justify-end"><Button size="sm" variant="destructive" className="h-8 text-xs bg-red-50 text-red-600 border border-red-200 hover:bg-red-100" onClick={() => handleDeleteGroup(group)}><Trash2 className="h-3 w-3 mr-1" /> Hapus</Button></div>
+                      <div className="mt-3 flex justify-end">
+                        <Button size="sm" variant="destructive" className="h-8 text-xs bg-red-50 text-red-600 border border-red-200 hover:bg-red-100" onClick={() => handleDeleteGroup(group)}>
+                          <Trash2 className="h-3 w-3 mr-1" /> Hapus Transaksi
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -262,6 +352,7 @@ const Penjualan = () => {
         </Card>
       </div>
 
+      {/* DIALOG EDIT ITEM */}
       <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}><DialogContent><DialogHeader><DialogTitle>Edit Item</DialogTitle></DialogHeader>
           {editData && (
             <div className="space-y-4 py-2">
@@ -273,7 +364,30 @@ const Penjualan = () => {
             </div>
           )}
           <DialogFooter><Button onClick={handleEditSave} disabled={editLoading} className="bg-blue-600">{editLoading ? <Loader2 className="animate-spin"/> : "Simpan"}</Button></DialogFooter>
-        </DialogContent></Dialog>
+        </DialogContent>
+      </Dialog>
+
+      {/* DIALOG TAMBAH BARANG SUSULAN (BARU) */}
+      <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}><DialogContent><DialogHeader><DialogTitle>Tambah Barang ke: {targetGroup?.customer_name}</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-2">
+             <Select value={selectedProduct?.product_name || ""} onValueChange={handleProductChange}><SelectTrigger><SelectValue placeholder="-- Pilih Produk Susulan --" /></SelectTrigger><SelectContent>{products.map(p => <SelectItem key={p.id} value={p.product_name}>{p.product_name}</SelectItem>)}</SelectContent></Select>
+             {selectedProduct && (
+                <div className="bg-blue-50 p-3 rounded space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    {selectedProduct.unit_type === 'pcs' ? (
+                      <><div><Label>Jumlah (Pcs)</Label><Input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} autoFocus /></div></>
+                    ) : (
+                      <><div><Label>Jumlah Ekor</Label><Input type="number" value={quantity} onChange={e => setQuantity(e.target.value)} /></div><div><Label>Berat (Kg)</Label><Input type="number" step="0.01" value={weight} onChange={e => setWeight(e.target.value)} autoFocus /></div></>
+                    )}
+                  </div>
+                  <div><Label>Harga Satuan</Label><Input type="number" value={pricePerKg} onChange={e => setPricePerKg(e.target.value)} /></div>
+                </div>
+             )}
+          </div>
+          <DialogFooter><Button onClick={handleAddSave} disabled={editLoading} className="bg-green-600">{editLoading ? <Loader2 className="animate-spin"/> : "Tambahkan ke Nota"}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </Layout>
   );
 };
