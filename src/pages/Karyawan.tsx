@@ -69,13 +69,14 @@ const Karyawan = () => {
   useEffect(() => {
     if (employees.length > 0) {
       loadWeeklyData();
-      loadDailyRealData(); // Load data Gaji & Absen harian
+      loadDailyRealData(); 
     }
   }, [employees, absenDate, currentWeekStart]);
 
   // --- 1. LOAD DATA ---
   const loadEmployees = async () => {
     setLoading(true);
+    // Ambil data gaji juga dari customer_master
     const { data } = await supabase.from('customer_master').select('id, customer_name, daily_base_salary, overtime_rate').eq('is_active', true).order('customer_name');
     setEmployees(data || []);
     
@@ -124,7 +125,7 @@ const Karyawan = () => {
       .from('operational_expenses')
       .select('id, category_name, amount, employee_id')
       .eq('date', absenDate)
-      .not('employee_id', 'is', null); // Hanya yang ada employee_id nya
+      .not('employee_id', 'is', null); 
 
     setDailyExpenses(ops || []);
   };
@@ -148,17 +149,14 @@ const Karyawan = () => {
 
   const weekDays = getWeekDays();
 
-  // --- 3. CLICK HANDLER MATRIX (EDIT/DELETE) ---
+  // --- 3. CLICK HANDLER MATRIX ---
   const handleCellClick = (log: AttendanceLog | undefined, empId: string, dateStr: string) => {
     if (log) {
-      // Kalau sudah ada absen -> Buka Dialog Edit
       setSelectedLog(log);
       setEditStatus(log.status);
       setEditOvertime(log.overtime_hours.toString());
       setIsEditOpen(true);
     } else {
-      // Kalau belum ada -> Bisa logic tambah manual disini kalau mau, 
-      // tapi sementara kita biarkan kosong agar user pakai form bawah biar rapi.
       toast({ title: "Info", description: "Silakan input absen melalui form di bawah." });
     }
   };
@@ -194,7 +192,7 @@ const Karyawan = () => {
     setLoading(false);
   };
 
-  // --- 4. LOGIC MONITOR GAJI (REAL DARI OPERASIONAL) ---
+  // --- 4. LOGIC MONITOR GAJI (REAL) ---
   const calculateRealSalary = () => {
     let totalPokok = 0;
     let totalLembur = 0;
@@ -206,8 +204,6 @@ const Karyawan = () => {
       } else if (cat.includes('lembur') || cat.includes('overtime')) {
         totalLembur += exp.amount;
       } else {
-        // Asumsi default kalau nama kategori lain (misal: "Bonus") masuk ke pokok atau dipisah
-        // Disini saya masukkan ke pokok sebagai 'Lainnya'
         totalPokok += exp.amount; 
       }
     });
@@ -217,7 +213,7 @@ const Karyawan = () => {
 
   const realStats = calculateRealSalary();
 
-  // --- 5. ACTION SIMPAN INPUT ABSEN ---
+  // --- 5. ACTION SIMPAN ---
   const saveAttendance = async () => {
     setLoading(true);
     const updates = employees.map(emp => ({
@@ -292,7 +288,6 @@ const Karyawan = () => {
                     {weekDays.map((d, i) => {
                       const dateStr = d.toLocaleDateString('en-CA');
                       const log = weeklyLogs.find(l => l.customer_id === emp.id && l.date === dateStr);
-                      
                       let Icon = <Minus className="h-3 w-3 text-gray-200 mx-auto" />;
                       let bgColor = "cursor-pointer hover:bg-gray-100"; 
 
@@ -308,17 +303,10 @@ const Karyawan = () => {
                           bgColor = "bg-red-50/50 cursor-pointer hover:bg-red-100";
                         }
                       }
-
                       return (
-                        <TableCell 
-                          key={i} 
-                          className={`text-center p-2 border-r last:border-0 ${bgColor} ${dateStr === absenDate ? 'ring-1 ring-indigo-200 ring-inset' : ''}`}
-                          onClick={() => handleCellClick(log, emp.id, dateStr)}
-                        >
+                        <TableCell key={i} className={`text-center p-2 border-r last:border-0 ${bgColor} ${dateStr === absenDate ? 'ring-1 ring-indigo-200 ring-inset' : ''}`} onClick={() => handleCellClick(log, emp.id, dateStr)}>
                           {Icon}
-                          {log && log.overtime_hours > 0 && (
-                            <div className="text-[9px] text-blue-600 mt-1 font-medium">+{log.overtime_hours} Jam</div>
-                          )}
+                          {log && log.overtime_hours > 0 && <div className="text-[9px] text-blue-600 mt-1 font-medium">+{log.overtime_hours} Jam</div>}
                         </TableCell>
                       );
                     })}
@@ -332,7 +320,6 @@ const Karyawan = () => {
         {/* --- BAGIAN 2: MONITOR GAJI (REAL DARI OPERASIONAL) --- */}
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
           
-          {/* Panel Kiri: Stats Gaji */}
           <div className="lg:col-span-1 space-y-4">
             <Card className="bg-gradient-to-br from-green-50 to-emerald-100 border-emerald-200">
               <CardHeader className="pb-2"><CardTitle className="text-sm font-bold text-emerald-800 flex items-center gap-2"><Banknote className="h-4 w-4"/> Total Gaji (Cash)</CardTitle></CardHeader>
@@ -342,20 +329,9 @@ const Karyawan = () => {
                 <p className="text-xs text-emerald-600 mt-1">{new Date(absenDate).toLocaleDateString('id-ID', {weekday:'long', day:'numeric', month:'long'})}</p>
               </CardContent>
             </Card>
-
             <div className="grid grid-cols-2 gap-3">
-              <Card className="bg-white border-blue-100">
-                <CardContent className="p-3">
-                  <p className="text-xs text-gray-500">Gaji Pokok</p>
-                  <p className="text-lg font-bold text-blue-700">{formatRp(realStats.totalPokok)}</p>
-                </CardContent>
-              </Card>
-              <Card className="bg-white border-orange-100">
-                <CardContent className="p-3">
-                  <p className="text-xs text-gray-500">Upah Lembur</p>
-                  <p className="text-lg font-bold text-orange-700">{formatRp(realStats.totalLembur)}</p>
-                </CardContent>
-              </Card>
+              <Card className="bg-white border-blue-100"><CardContent className="p-3"><p className="text-xs text-gray-500">Gaji Pokok</p><p className="text-lg font-bold text-blue-700">{formatRp(realStats.totalPokok)}</p></CardContent></Card>
+              <Card className="bg-white border-orange-100"><CardContent className="p-3"><p className="text-xs text-gray-500">Upah Lembur</p><p className="text-lg font-bold text-orange-700">{formatRp(realStats.totalLembur)}</p></CardContent></Card>
             </div>
           </div>
 
@@ -364,7 +340,7 @@ const Karyawan = () => {
             <CardHeader className="flex flex-row items-center justify-between bg-gray-50/50 pb-4 border-b">
               <div className="space-y-1">
                 <CardTitle className="flex items-center gap-2 text-blue-800"><CalendarCheck className="h-5 w-5"/> Form Input Absensi</CardTitle>
-                <p className="text-xs text-gray-500">Isi status kehadiran untuk monitoring</p>
+                <p className="text-xs text-gray-500">Monitoring kehadiran (Gaji dieksekusi di menu Operasional)</p>
               </div>
               <div className="flex items-center gap-2 bg-white p-1 rounded border shadow-sm">
                 <Label className="pl-2 text-xs font-bold text-gray-500">TANGGAL:</Label>
@@ -375,9 +351,13 @@ const Karyawan = () => {
               <Table>
                 <TableHeader className="bg-gray-100">
                   <TableRow>
-                    <TableHead className="w-[40%]">Nama Karyawan</TableHead>
-                    <TableHead className="w-[30%]">Status</TableHead>
-                    <TableHead className="w-[30%]">Lembur (Jam)</TableHead>
+                    <TableHead className="w-[30%]">Nama Karyawan</TableHead>
+                    {/* KOLOM BARU SESUAI REQUEST */}
+                    <TableHead className="w-[20%] text-right text-xs">Gaji Pokok</TableHead>
+                    <TableHead className="w-[15%] text-right text-xs">Upah Lembur</TableHead>
+                    
+                    <TableHead className="w-[20%] pl-6">Status</TableHead>
+                    <TableHead className="w-[15%]">Lembur (Jam)</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -388,7 +368,12 @@ const Karyawan = () => {
                     return (
                       <TableRow key={emp.id} className="hover:bg-blue-50/30 transition-colors">
                         <TableCell className="font-bold text-gray-700">{emp.customer_name}</TableCell>
-                        <TableCell>
+                        
+                        {/* DATA GAJI (READ ONLY) */}
+                        <TableCell className="text-right text-xs font-mono text-gray-500">{formatRp(emp.daily_base_salary)}</TableCell>
+                        <TableCell className="text-right text-xs font-mono text-gray-500">{formatRp(emp.overtime_rate)}/jam</TableCell>
+
+                        <TableCell className="pl-6">
                           <Select value={status} onValueChange={(v) => handleInputChange(emp.id, 'status', v)}>
                             <SelectTrigger className={`h-8 w-full border-0 shadow-sm ${status === 'Hadir' ? 'bg-green-100 text-green-800 font-medium' : status === 'Alpha' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}`}>
                               <SelectValue/>
@@ -404,7 +389,7 @@ const Karyawan = () => {
                           <div className="flex items-center gap-2">
                             <Input 
                               type="number" 
-                              className={`h-8 w-20 text-center ${parseFloat(lembur) > 0 ? 'bg-blue-50 border-blue-300 font-bold text-blue-700' : ''}`}
+                              className={`h-8 w-16 text-center ${parseFloat(lembur) > 0 ? 'bg-blue-50 border-blue-300 font-bold text-blue-700' : ''}`}
                               value={lembur} 
                               onChange={(e) => handleInputChange(emp.id, 'overtime', e.target.value)} 
                               onFocus={(e) => e.target.select()}
@@ -428,26 +413,16 @@ const Karyawan = () => {
           </Card>
         </div>
 
-        {/* DIALOG EDIT ABSEN (Muncul Pas Klik Matrix) */}
+        {/* DIALOG EDIT */}
         <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
           <DialogContent>
             <DialogHeader><DialogTitle>Edit Data Absen</DialogTitle></DialogHeader>
             <div className="space-y-4 py-2">
               <div className="space-y-2">
                 <Label>Status Kehadiran</Label>
-                <Select value={editStatus} onValueChange={setEditStatus}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Hadir">Hadir</SelectItem>
-                    <SelectItem value="Izin">Izin</SelectItem>
-                    <SelectItem value="Alpha">Alpha</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Select value={editStatus} onValueChange={setEditStatus}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Hadir">Hadir</SelectItem><SelectItem value="Izin">Izin</SelectItem><SelectItem value="Alpha">Alpha</SelectItem></SelectContent></Select>
               </div>
-              <div className="space-y-2">
-                <Label>Jam Lembur</Label>
-                <Input type="number" value={editOvertime} onChange={e => setEditOvertime(e.target.value)} />
-              </div>
+              <div className="space-y-2"><Label>Jam Lembur</Label><Input type="number" value={editOvertime} onChange={e => setEditOvertime(e.target.value)} /></div>
             </div>
             <DialogFooter className="gap-2 sm:gap-0">
               <Button variant="destructive" onClick={deleteLog} disabled={loading}>{loading ? <Loader2 className="animate-spin"/> : <Trash2 className="h-4 w-4 mr-2"/>} Hapus Data</Button>
