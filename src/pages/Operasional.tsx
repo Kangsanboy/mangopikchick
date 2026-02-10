@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator"; 
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Plus, Loader2, Trash2, Wallet, CalendarDays, User, RefreshCcw } from "lucide-react";
+import { Plus, Loader2, Trash2, Wallet, CalendarDays, User } from "lucide-react";
 
 interface ExpenseData {
   id: string;
@@ -16,12 +16,12 @@ interface ExpenseData {
   note: string;
   amount: number;
   employee_id?: string;
-  customer_master?: { customer_name: string }; 
+  employees?: { name: string }; // Join ke tabel employees
 }
 
-interface CustomerEmployee {
+interface Employee {
   id: string;
-  customer_name: string;
+  name: string;
 }
 
 const Operasional = () => {
@@ -31,7 +31,7 @@ const Operasional = () => {
   
   const [categories, setCategories] = useState<any[]>([]);
   const [expenses, setExpenses] = useState<ExpenseData[]>([]);
-  const [employees, setEmployees] = useState<CustomerEmployee[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]); // Data dari tabel employees
 
   const [catName, setCatName] = useState("");
   const [note, setNote] = useState("");
@@ -46,24 +46,25 @@ const Operasional = () => {
   useEffect(() => { loadExpenses(); }, [selectedDate]);
 
   const loadCategories = async () => {
-    const { data, error } = await supabase.from('expense_categories').select('*').eq('is_active', true).order('name');
-    if (!error) setCategories(data || []);
+    const { data } = await supabase.from('expense_categories').select('*').eq('is_active', true).order('name');
+    if (data) setCategories(data);
   };
 
+  // LOAD DARI TABEL EMPLOYEES (BUKAN CUSTOMER LAGI)
   const loadEmployees = async () => {
-    const { data } = await supabase.from('customer_master').select('id, customer_name').eq('is_active', true).order('customer_name');
-    setEmployees(data || []);
+    const { data } = await supabase.from('employees').select('id, name').eq('is_active', true).order('name');
+    if (data) setEmployees(data);
   };
 
   const loadExpenses = async () => {
     const { data, error } = await supabase
       .from('operational_expenses')
-      .select('*, customer_master(customer_name)')
+      .select('*, employees(name)') // Join ke tabel employees
       .eq('date', selectedDate)
       .order('created_at', { ascending: false });
       
-    if (!error) {
-      setExpenses(data || []);
+    if (!error && data) {
+      setExpenses(data);
     }
   };
 
@@ -85,7 +86,7 @@ const Operasional = () => {
       return; 
     }
 
-    const isSalaryInput = catName.toLowerCase().includes("gaji");
+    const isSalaryInput = catName.toLowerCase().includes("gaji") || catName.toLowerCase().includes("bonus");
     if (isSalaryInput && !selectedEmployee) {
       toast({ title: "Error", description: "Pilih karyawan untuk kategori Gaji!", variant: "destructive" });
       return;
@@ -95,7 +96,6 @@ const Operasional = () => {
     const nominal = parseInt(amount);
     
     try {
-      // 1. Simpan Transaksi Pengeluaran
       const { error } = await supabase.from('operational_expenses').insert({
         category_name: catName,
         note: note,
@@ -105,26 +105,6 @@ const Operasional = () => {
       });
 
       if (error) throw error;
-
-      // 2. FITUR UPDATE OTOMATIS DATA MASTER (Sesuai Request)
-      if (selectedEmployee) {
-        if (catName.toLowerCase().includes("pokok") || catName.toLowerCase().includes("harian")) {
-          // Update Gaji Pokok di Master Data
-          await supabase.from('customer_master')
-            .update({ daily_base_salary: nominal })
-            .eq('id', selectedEmployee);
-            
-          toast({ title: "Data Master Updated", description: `Gaji Pokok karyawan diperbarui jadi ${formatRp(nominal)}` });
-        } 
-        else if (catName.toLowerCase().includes("lembur")) {
-          // Update Rate Lembur di Master Data
-          await supabase.from('customer_master')
-            .update({ overtime_rate: nominal })
-            .eq('id', selectedEmployee);
-
-          toast({ title: "Data Master Updated", description: `Rate Lembur karyawan diperbarui jadi ${formatRp(nominal)}` });
-        }
-      }
 
       toast({ title: "Berhasil", description: "Pengeluaran berhasil dicatat." });
       setCatName(""); 
@@ -193,11 +173,10 @@ const Operasional = () => {
                     <SelectTrigger className="bg-blue-50 border-blue-200"><SelectValue placeholder="-- Pilih Karyawan --" /></SelectTrigger>
                     <SelectContent>
                       {employees.map(emp => (
-                        <SelectItem key={emp.id} value={emp.id}>{emp.customer_name}</SelectItem>
+                        <SelectItem key={emp.id} value={emp.id}>{emp.name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  <p className="text-[10px] text-gray-500">*Nominal yang diinput otomatis jadi standar gaji baru karyawan ini.</p>
                 </div>
               )}
 
@@ -229,9 +208,9 @@ const Operasional = () => {
                       <div>
                         <div className="flex items-center gap-2">
                           <p className="font-bold text-gray-800">{e.category_name}</p>
-                          {e.customer_master && (
+                          {e.employees && (
                             <div className="flex items-center gap-1 bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs font-bold">
-                              <User className="h-3 w-3"/> {e.customer_master.customer_name}
+                              <User className="h-3 w-3"/> {e.employees.name}
                             </div>
                           )}
                         </div>
