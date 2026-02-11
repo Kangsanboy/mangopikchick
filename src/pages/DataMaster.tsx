@@ -6,10 +6,20 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Database, Package, Users, Wallet, Trash2, Plus, Loader2, UserCircle } from "lucide-react";
+import { Database, Package, Users, Wallet, Trash2, Plus, Loader2, UserCircle, Edit } from "lucide-react";
 import { TABLE_NAMES } from "@/types/database";
+
+// Interface untuk Produk biar gampang di-edit
+interface Product {
+  id: string;
+  product_name: string;
+  price_per_kg: number;
+  category: string;
+  unit_type: string;
+}
 
 const DataMaster = () => {
   const { toast } = useToast();
@@ -17,23 +27,25 @@ const DataMaster = () => {
   const [loading, setLoading] = useState(false);
 
   // Data States
-  const [products, setProducts] = useState<any[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
-  const [employees, setEmployees] = useState<any[]>([]); // New State Karyawan
+  const [employees, setEmployees] = useState<any[]>([]); 
   const [expenseCats, setExpenseCats] = useState<any[]>([]);
 
-  // Form States
+  // Form States - ADD
   const [newProdName, setNewProdName] = useState("");
   const [newProdPrice, setNewProdPrice] = useState("");
-  const [newProdCat, setNewProdCat] = useState("utuh");
+  const [newProdCat, setNewProdCat] = useState("utuh"); // Default Utuh
   const [newProdUnit, setNewProdUnit] = useState("kg");
 
   const [newCustName, setNewCustName] = useState("");
-  
-  const [newEmpName, setNewEmpName] = useState(""); // Form Karyawan
-
+  const [newEmpName, setNewEmpName] = useState(""); 
   const [newExpName, setNewExpName] = useState("");
   const [newExpDefault, setNewExpDefault] = useState("");
+
+  // Edit State (Khusus Produk)
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [editData, setEditData] = useState<Product | null>(null);
 
   useEffect(() => {
     loadAllData();
@@ -43,7 +55,7 @@ const DataMaster = () => {
     setLoading(true);
     const { data: pData } = await supabase.from(TABLE_NAMES.PRODUCT_MASTER).select('*').eq('is_active', true).order('product_name');
     const { data: cData } = await supabase.from('customer_master').select('*').eq('is_active', true).order('customer_name');
-    const { data: eData } = await supabase.from('employees').select('*').eq('is_active', true).order('name'); // Load Karyawan
+    const { data: eData } = await supabase.from('employees').select('*').eq('is_active', true).order('name'); 
     const { data: exData } = await supabase.from('expense_categories').select('*').eq('is_active', true).order('name');
     
     setProducts(pData || []);
@@ -60,11 +72,36 @@ const DataMaster = () => {
     await supabase.from(TABLE_NAMES.PRODUCT_MASTER).insert({
       product_name: newProdName,
       price_per_kg: parseInt(newProdPrice),
-      category: newProdCat,
+      category: newProdCat, // Masukkan Kategori
       unit_type: newProdUnit
     });
     toast({ title: "Produk Ditambahkan" });
     setNewProdName(""); setNewProdPrice(""); loadAllData();
+  };
+
+  const updateProduct = async () => {
+    if (!editData) return;
+    setLoading(true);
+    const { error } = await supabase.from(TABLE_NAMES.PRODUCT_MASTER).update({
+      product_name: editData.product_name,
+      price_per_kg: editData.price_per_kg,
+      category: editData.category,
+      unit_type: editData.unit_type
+    }).eq('id', editData.id);
+
+    if (!error) {
+      toast({ title: "Produk Diupdate", description: "Harga dan data berhasil diubah." });
+      setIsEditOpen(false);
+      loadAllData();
+    } else {
+      toast({ title: "Gagal Update", variant: "destructive" });
+    }
+    setLoading(false);
+  };
+
+  const openEditModal = (prod: Product) => {
+    setEditData({ ...prod });
+    setIsEditOpen(true);
   };
 
   const addCustomer = async () => {
@@ -74,7 +111,6 @@ const DataMaster = () => {
     setNewCustName(""); loadAllData();
   };
 
-  // TAMBAH KARYAWAN (BARU)
   const addEmployee = async () => {
     if (!newEmpName) return;
     await supabase.from('employees').insert({ name: newEmpName });
@@ -116,7 +152,7 @@ const DataMaster = () => {
         <Card>
           <CardHeader>
             <CardTitle>
-              {activeTab === "produk" && "Kelola Produk Jualan"}
+              {activeTab === "produk" && "Kelola Produk & Harga"}
               {activeTab === "pelanggan" && "Kelola Data Pelanggan"}
               {activeTab === "karyawan" && "Kelola Data Karyawan"}
               {activeTab === "biaya" && "Kelola Kategori Operasional"}
@@ -127,15 +163,67 @@ const DataMaster = () => {
             {/* 1. PRODUK */}
             {activeTab === "produk" && (
               <div className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end bg-gray-50 p-4 rounded-lg">
-                  <div className="md:col-span-2"><Label>Nama Produk</Label><Input value={newProdName} onChange={e => setNewProdName(e.target.value)} placeholder="Contoh: Ayam Hidup Besar" /></div>
-                  <div><Label>Harga Dasar</Label><Input type="number" value={newProdPrice} onChange={e => setNewProdPrice(e.target.value)} placeholder="0" /></div>
-                  <div><Label>Satuan</Label><Select value={newProdUnit} onValueChange={setNewProdUnit}><SelectTrigger><SelectValue/></SelectTrigger><SelectContent><SelectItem value="kg">Kiloan (Kg)</SelectItem><SelectItem value="pcs">Satuan (Pcs)</SelectItem></SelectContent></Select></div>
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end bg-gray-50 p-4 rounded-lg border">
+                  <div className="md:col-span-2">
+                    <Label>Nama Produk</Label>
+                    <Input value={newProdName} onChange={e => setNewProdName(e.target.value)} placeholder="Contoh: Ayam Hidup Besar" className="bg-white" />
+                  </div>
+                  <div>
+                    <Label>Harga Jual</Label>
+                    <Input type="number" value={newProdPrice} onChange={e => setNewProdPrice(e.target.value)} placeholder="0" className="bg-white" />
+                  </div>
+                  <div>
+                    <Label>Tipe & Satuan</Label>
+                    <div className="flex gap-2">
+                       {/* KEMBALI LAGI: INPUT TIPE */}
+                       <Select value={newProdCat} onValueChange={setNewProdCat}>
+                         <SelectTrigger className="bg-white"><SelectValue/></SelectTrigger>
+                         <SelectContent>
+                           <SelectItem value="utuh">Utuh</SelectItem>
+                           <SelectItem value="parting">Parting/Jeroan</SelectItem>
+                         </SelectContent>
+                       </Select>
+                       <Select value={newProdUnit} onValueChange={setNewProdUnit}>
+                         <SelectTrigger className="bg-white"><SelectValue/></SelectTrigger>
+                         <SelectContent>
+                           <SelectItem value="kg">Kg</SelectItem>
+                           <SelectItem value="pcs">Pcs</SelectItem>
+                         </SelectContent>
+                       </Select>
+                    </div>
+                  </div>
                   <Button onClick={addProduct}><Plus className="mr-2 h-4 w-4"/> Tambah</Button>
                 </div>
-                <Table><TableHeader><TableRow><TableHead>Nama Produk</TableHead><TableHead>Harga/Satuan</TableHead><TableHead>Tipe</TableHead><TableHead className="text-right">Aksi</TableHead></TableRow></TableHeader>
-                  <TableBody>{products.map(p => (
-                    <TableRow key={p.id}><TableCell className="font-bold">{p.product_name}</TableCell><TableCell>Rp {p.price_per_kg.toLocaleString()}/{p.unit_type}</TableCell><TableCell>{p.category}</TableCell><TableCell className="text-right"><Button variant="ghost" size="sm" className="text-red-500" onClick={() => handleDelete(TABLE_NAMES.PRODUCT_MASTER, p.id)}><Trash2 className="h-4 w-4"/></Button></TableCell></TableRow>
+
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nama Produk</TableHead>
+                      <TableHead>Harga</TableHead>
+                      <TableHead>Tipe</TableHead>
+                      <TableHead>Satuan</TableHead>
+                      <TableHead className="text-right">Aksi</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {products.map(p => (
+                    <TableRow key={p.id}>
+                      <TableCell className="font-bold">{p.product_name}</TableCell>
+                      <TableCell>Rp {p.price_per_kg.toLocaleString()}</TableCell>
+                      <TableCell><Badge variant="outline">{p.category}</Badge></TableCell>
+                      <TableCell>{p.unit_type}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-2">
+                          {/* TOMBOL EDIT */}
+                          <Button variant="ghost" size="sm" className="text-blue-500 bg-blue-50" onClick={() => openEditModal(p)}>
+                            <Edit className="h-4 w-4"/>
+                          </Button>
+                          <Button variant="ghost" size="sm" className="text-red-500 bg-red-50" onClick={() => handleDelete(TABLE_NAMES.PRODUCT_MASTER, p.id)}>
+                            <Trash2 className="h-4 w-4"/>
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
                   ))}</TableBody>
                 </Table>
               </div>
@@ -156,7 +244,7 @@ const DataMaster = () => {
               </div>
             )}
 
-            {/* 3. KARYAWAN (NEW) */}
+            {/* 3. KARYAWAN */}
             {activeTab === "karyawan" && (
               <div className="space-y-6 animate-in fade-in">
                 <div className="flex gap-4 items-end bg-indigo-50 p-4 rounded-lg border border-indigo-100">
@@ -189,6 +277,53 @@ const DataMaster = () => {
 
           </CardContent>
         </Card>
+
+        {/* DIALOG EDIT PRODUK */}
+        <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Edit Produk</DialogTitle>
+            </DialogHeader>
+            {editData && (
+              <div className="space-y-4 py-2">
+                <div>
+                  <Label>Nama Produk</Label>
+                  <Input value={editData.product_name} onChange={(e) => setEditData({ ...editData, product_name: e.target.value })} />
+                </div>
+                <div>
+                  <Label>Harga per Kg/Pcs</Label>
+                  <Input type="number" value={editData.price_per_kg} onChange={(e) => setEditData({ ...editData, price_per_kg: parseInt(e.target.value) || 0 })} />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>Kategori (Tipe)</Label>
+                    <Select value={editData.category} onValueChange={(val) => setEditData({ ...editData, category: val })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="utuh">Utuh</SelectItem>
+                        <SelectItem value="parting">Parting/Jeroan</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Satuan</Label>
+                    <Select value={editData.unit_type} onValueChange={(val) => setEditData({ ...editData, unit_type: val })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="kg">Kg</SelectItem>
+                        <SelectItem value="pcs">Pcs</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button onClick={updateProduct} disabled={loading}>{loading ? <Loader2 className="animate-spin" /> : "Simpan Perubahan"}</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        
       </div>
     </Layout>
   );
