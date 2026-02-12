@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Users, CalendarCheck, Banknote, Save, Loader2, Check, X, Minus, ChevronLeft, ChevronRight, Edit, Trash2, Wallet } from "lucide-react";
+import { Users, CalendarCheck, Banknote, Save, Loader2, Check, X, Minus, ChevronLeft, ChevronRight, Edit, Trash2, Wallet, ArrowRight } from "lucide-react";
 
 interface Employee {
   id: string;
@@ -24,7 +24,14 @@ interface AttendanceLog {
   employee_id: string;
   date: string;
   status: 'Hadir' | 'Izin' | 'Alpha';
-  overtime_type: 'NONE' | 'HALF' | 'FULL'; // Tipe Lembur Baru
+  overtime_type: 'NONE' | 'HALF' | 'FULL';
+}
+
+interface ExpenseData {
+  id: string;
+  category_name: string;
+  amount: number;
+  employee_id: string;
 }
 
 const Karyawan = () => {
@@ -34,16 +41,20 @@ const Karyawan = () => {
   // --- STATES ---
   const [employees, setEmployees] = useState<Employee[]>([]);
   
-  // State Tanggal
+  // State Tanggal Absen (Untuk Input)
   const [absenDate, setAbsenDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }));
+  
+  // State Tanggal Gaji (Range)
+  const [salaryStartDate, setSalaryStartDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }));
+  const [salaryEndDate, setSalaryEndDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }));
+
   const [currentWeekStart, setCurrentWeekStart] = useState(new Date()); 
 
   // Data
   const [inputAttendance, setInputAttendance] = useState<{ [key: string]: { status: string, overtime: string } }>({});
   const [weeklyLogs, setWeeklyLogs] = useState<AttendanceLog[]>([]);
-  // Kita fetch semua logs untuk kalkulasi gaji periode tertentu (misal mingguan/bulanan)
-  // Untuk simpelnya, monitor gaji di bawah kita hitung berdasarkan VIEW MINGGUAN yang sedang tampil
-  
+  const [salaryExpenses, setSalaryExpenses] = useState<ExpenseData[]>([]);
+
   // State Dialog Edit
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [selectedLog, setSelectedLog] = useState<AttendanceLog | null>(null);
@@ -59,12 +70,26 @@ const Karyawan = () => {
     setCurrentWeekStart(monday);
   }, []);
 
+  // Sync Salary Date with Absen Date (Default Behavior)
+  // Kalau mau fitur ini dimatikan (tanggal gaji gak berubah pas tanggal absen berubah), hapus useEffect ini.
+  useEffect(() => {
+    setSalaryStartDate(absenDate);
+    setSalaryEndDate(absenDate);
+  }, [absenDate]);
+
   useEffect(() => {
     if (employees.length > 0) {
       loadWeeklyData();
-      loadDailyInputData();
+      loadDailyAbsence();
     }
   }, [employees, absenDate, currentWeekStart]);
+
+  // Load Salary Data setiap kali Range Tanggal Gaji berubah
+  useEffect(() => {
+    if (employees.length > 0) {
+      loadSalaryData();
+    }
+  }, [salaryStartDate, salaryEndDate, employees]);
 
   // --- 1. LOAD DATA ---
   const loadEmployees = async () => {
@@ -90,7 +115,8 @@ const Karyawan = () => {
     setWeeklyLogs(data || []);
   };
 
-  const loadDailyInputData = async () => {
+  const loadDailyAbsence = async () => {
+    // Load Absen HANYA untuk hari yang dipilih di form input
     const { data: logs } = await supabase.from('attendance_logs').select('*').eq('date', absenDate);
     if (logs && logs.length > 0) {
       const loaded: any = {};
@@ -103,6 +129,16 @@ const Karyawan = () => {
       employees.forEach(emp => { reset[emp.id] = { status: 'Hadir', overtime: 'NONE' }; });
       setInputAttendance(reset);
     }
+  };
+
+  const loadSalaryData = async () => {
+    // Load Gaji berdasarkan RANGE TANGGAL (Bisa 1 hari, bisa 1 minggu, dll)
+    const { data: ops } = await supabase.from('operational_expenses')
+      .select('id, category_name, amount, employee_id')
+      .gte('date', salaryStartDate)
+      .lte('date', salaryEndDate)
+      .not('employee_id', 'is', null); 
+    setSalaryExpenses(ops || []);
   };
 
   // --- 2. LOGIC MINGGUAN ---
@@ -140,7 +176,7 @@ const Karyawan = () => {
       status: editStatus,
       overtime_type: editOvertimeType 
     }).eq('id', selectedLog.id);
-    if (!error) { toast({ title: "Update Berhasil" }); setIsEditOpen(false); loadWeeklyData(); loadDailyInputData(); }
+    if (!error) { toast({ title: "Update Berhasil" }); setIsEditOpen(false); loadWeeklyData(); loadDailyAbsence(); }
     setLoading(false);
   };
 
@@ -148,7 +184,7 @@ const Karyawan = () => {
     if (!selectedLog || !confirm("Hapus absen ini?")) return;
     setLoading(true);
     const { error } = await supabase.from('attendance_logs').delete().eq('id', selectedLog.id);
-    if (!error) { toast({ title: "Dihapus" }); setIsEditOpen(false); loadWeeklyData(); loadDailyInputData(); }
+    if (!error) { toast({ title: "Dihapus" }); setIsEditOpen(false); loadWeeklyData(); loadDailyAbsence(); }
     setLoading(false);
   };
 
@@ -181,7 +217,7 @@ const Karyawan = () => {
     <Layout>
       <div className="space-y-8 pb-20">
         <div className="flex justify-between items-center">
-          <div><h1 className="text-3xl font-bold text-gray-900">Karyawan & Gaji</h1><p className="text-gray-600">Monitoring Absensi Mingguan & Kalkulasi Gaji</p></div>
+          <div><h1 className="text-3xl font-bold text-gray-900">Karyawan & Gaji</h1><p className="text-gray-600">Monitoring Absensi & Kalkulasi Gaji</p></div>
         </div>
 
         {/* --- MONITOR ABSEN MINGGUAN --- */}
@@ -268,51 +304,64 @@ const Karyawan = () => {
             </CardContent>
           </Card>
 
-          {/* KANAN: MONITOR GAJI MINGGUAN (OTOMATIS) */}
+          {/* KANAN: MONITOR GAJI RANGE (DENGAN FILTER TANGGAL) */}
           <Card className="border-t-4 border-t-emerald-500 h-full">
             <CardHeader className="bg-emerald-50/30 pb-4 border-b">
-              <div className="flex justify-between items-center">
-                <CardTitle className="flex items-center gap-2 text-emerald-800"><Wallet className="h-5 w-5"/> Estimasi Gaji Mingguan</CardTitle>
-                <Badge variant="outline" className="bg-white border-emerald-200 text-emerald-700">Periode Tabel Diatas</Badge>
+              <div className="flex justify-between items-center mb-3">
+                <CardTitle className="flex items-center gap-2 text-emerald-800"><Wallet className="h-5 w-5"/> Monitor Gaji</CardTitle>
+                <Badge variant="outline" className="bg-white border-emerald-200 text-emerald-700">Periode Pilihan</Badge>
               </div>
-              <p className="text-xs text-gray-500 mt-1">Dihitung otomatis: (Hadir x Gaji Pokok) + (Lembur x Rate)</p>
+              
+              {/* DATE RANGE FILTER */}
+              <div className="flex items-center gap-2 text-sm bg-white p-2 rounded border border-emerald-100">
+                <div className="flex items-center gap-1">
+                  <Label className="text-xs text-gray-500">Dari:</Label>
+                  <Input type="date" value={salaryStartDate} onChange={e => setSalaryStartDate(e.target.value)} className="h-7 w-auto text-xs px-2" />
+                </div>
+                <ArrowRight className="h-3 w-3 text-gray-400" />
+                <div className="flex items-center gap-1">
+                  <Label className="text-xs text-gray-500">Sampai:</Label>
+                  <Input type="date" value={salaryEndDate} onChange={e => setSalaryEndDate(e.target.value)} className="h-7 w-auto text-xs px-2" />
+                </div>
+              </div>
             </CardHeader>
             <CardContent className="p-0">
               <Table>
                 <TableHeader className="bg-gray-100"><TableRow><TableHead>Nama</TableHead><TableHead className="text-right">Gaji Pokok</TableHead><TableHead className="text-right">Lembur</TableHead><TableHead className="text-right font-bold">Total</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {employees.map(emp => {
-                    // Filter log absen minggu ini punya karyawan ini
-                    const myLogs = weeklyLogs.filter(l => l.employee_id === emp.id);
-                    
-                    let totalPokok = 0;
-                    let totalLembur = 0;
+                    const myExpenses = salaryExpenses.filter(e => e.employee_id === emp.id);
+                    let receivedPokok = 0;
+                    let receivedLembur = 0;
 
-                    myLogs.forEach(log => {
-                      // 1. Hitung Pokok (Kalau Hadir)
-                      if (log.status === 'Hadir') {
-                        totalPokok += emp.daily_base_salary;
-                      }
-                      
-                      // 2. Hitung Lembur (Full atau Half)
-                      if (log.overtime_type === 'FULL') {
-                        totalLembur += emp.overtime_rate;
-                      } else if (log.overtime_type === 'HALF') {
-                        totalLembur += (emp.overtime_rate / 2);
+                    myExpenses.forEach(exp => {
+                      const cat = exp.category_name.toLowerCase();
+                      if (cat.includes('lembur') || cat.includes('overtime') || cat.includes('bonus')) {
+                        receivedLembur += exp.amount;
+                      } else {
+                        receivedPokok += exp.amount;
                       }
                     });
 
-                    const grandTotal = totalPokok + totalLembur;
+                    const grandTotal = receivedPokok + receivedLembur;
                     
                     return (
                       <TableRow key={emp.id} className="hover:bg-emerald-50/30">
                         <TableCell className="font-medium text-gray-700">{emp.name}</TableCell>
-                        <TableCell className="text-right text-gray-600">{formatRp(totalPokok)}</TableCell>
-                        <TableCell className="text-right text-orange-600 font-medium">{formatRp(totalLembur)}</TableCell>
-                        <TableCell className="text-right font-bold text-emerald-700">{formatRp(grandTotal)}</TableCell>
+                        <TableCell className="text-right text-gray-600">{receivedPokok > 0 ? formatRp(receivedPokok) : '-'}</TableCell>
+                        <TableCell className="text-right text-orange-600 font-medium">{receivedLembur > 0 ? formatRp(receivedLembur) : '-'}</TableCell>
+                        <TableCell className="text-right font-bold text-emerald-700">{grandTotal > 0 ? formatRp(grandTotal) : '-'}</TableCell>
                       </TableRow>
                     )
                   })}
+                  
+                  {/* TOTAL FOOTER */}
+                  <TableRow className="bg-gray-50 border-t-2 border-gray-200">
+                    <TableCell className="font-bold text-gray-900">TOTAL</TableCell>
+                    <TableCell colSpan={3} className="text-right font-bold text-lg text-emerald-800">
+                      {formatRp(salaryExpenses.reduce((sum, e) => sum + e.amount, 0))}
+                    </TableCell>
+                  </TableRow>
                 </TableBody>
               </Table>
             </CardContent>
