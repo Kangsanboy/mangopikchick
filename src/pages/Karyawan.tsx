@@ -63,6 +63,7 @@ const Karyawan = () => {
 
   useEffect(() => { 
     loadEmployees(); 
+    // Init mingguan (Senin minggu ini)
     const today = new Date();
     const day = today.getDay();
     const diff = today.getDate() - day + (day === 0 ? -6 : 1); 
@@ -70,17 +71,31 @@ const Karyawan = () => {
     setCurrentWeekStart(monday);
   }, []);
 
-  // Sync Salary Date with Absen Date (Default Behavior)
-  // Kalau mau fitur ini dimatikan (tanggal gaji gak berubah pas tanggal absen berubah), hapus useEffect ini.
+  // --- UPDATE LOGIC TANGGAL GAJI (SENIN - MINGGU) ---
   useEffect(() => {
-    setSalaryStartDate(absenDate);
-    setSalaryEndDate(absenDate);
+    // Setiap kali tanggal absen berubah, set range gaji ke SENIN - MINGGU minggu tersebut
+    const d = new Date(absenDate);
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Cari hari Senin
+    
+    const monday = new Date(d);
+    monday.setDate(diff);
+    
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6); // Senin + 6 hari = Minggu
+
+    setSalaryStartDate(monday.toLocaleDateString('en-CA'));
+    setSalaryEndDate(sunday.toLocaleDateString('en-CA'));
+    
+    // Update juga view tabel mingguan (biar sinkron sama yang dipilih)
+    setCurrentWeekStart(monday);
+
   }, [absenDate]);
 
   useEffect(() => {
     if (employees.length > 0) {
       loadWeeklyData();
-      loadDailyAbsence();
+      loadDailyInputData();
     }
   }, [employees, absenDate, currentWeekStart]);
 
@@ -115,8 +130,7 @@ const Karyawan = () => {
     setWeeklyLogs(data || []);
   };
 
-  const loadDailyAbsence = async () => {
-    // Load Absen HANYA untuk hari yang dipilih di form input
+  const loadDailyInputData = async () => {
     const { data: logs } = await supabase.from('attendance_logs').select('*').eq('date', absenDate);
     if (logs && logs.length > 0) {
       const loaded: any = {};
@@ -132,7 +146,6 @@ const Karyawan = () => {
   };
 
   const loadSalaryData = async () => {
-    // Load Gaji berdasarkan RANGE TANGGAL (Bisa 1 hari, bisa 1 minggu, dll)
     const { data: ops } = await supabase.from('operational_expenses')
       .select('id, category_name, amount, employee_id')
       .gte('date', salaryStartDate)
@@ -155,6 +168,7 @@ const Karyawan = () => {
     const newStart = new Date(currentWeekStart);
     newStart.setDate(newStart.getDate() + (offset * 7));
     setCurrentWeekStart(newStart);
+    // Kita tidak ubah absenDate otomatis disini biar user yang kontrol lewat input tanggal
   };
   const weekDays = getWeekDays();
 
@@ -176,7 +190,7 @@ const Karyawan = () => {
       status: editStatus,
       overtime_type: editOvertimeType 
     }).eq('id', selectedLog.id);
-    if (!error) { toast({ title: "Update Berhasil" }); setIsEditOpen(false); loadWeeklyData(); loadDailyAbsence(); }
+    if (!error) { toast({ title: "Update Berhasil" }); setIsEditOpen(false); loadWeeklyData(); loadDailyInputData(); }
     setLoading(false);
   };
 
@@ -184,11 +198,11 @@ const Karyawan = () => {
     if (!selectedLog || !confirm("Hapus absen ini?")) return;
     setLoading(true);
     const { error } = await supabase.from('attendance_logs').delete().eq('id', selectedLog.id);
-    if (!error) { toast({ title: "Dihapus" }); setIsEditOpen(false); loadWeeklyData(); loadDailyAbsence(); }
+    if (!error) { toast({ title: "Dihapus" }); setIsEditOpen(false); loadWeeklyData(); loadDailyInputData(); }
     setLoading(false);
   };
 
-  // --- 4. SIMPAN ABSEN (BULK) ---
+  // --- 4. SIMPAN ABSEN ---
   const saveAttendance = async () => {
     setLoading(true);
     const updates = employees.map(emp => ({
@@ -304,12 +318,12 @@ const Karyawan = () => {
             </CardContent>
           </Card>
 
-          {/* KANAN: MONITOR GAJI RANGE (DENGAN FILTER TANGGAL) */}
+          {/* KANAN: MONITOR GAJI RANGE (DENGAN FILTER TANGGAL OTOMATIS) */}
           <Card className="border-t-4 border-t-emerald-500 h-full">
             <CardHeader className="bg-emerald-50/30 pb-4 border-b">
               <div className="flex justify-between items-center mb-3">
                 <CardTitle className="flex items-center gap-2 text-emerald-800"><Wallet className="h-5 w-5"/> Monitor Gaji</CardTitle>
-                <Badge variant="outline" className="bg-white border-emerald-200 text-emerald-700">Periode Pilihan</Badge>
+                <Badge variant="outline" className="bg-white border-emerald-200 text-emerald-700">Otomatis Mingguan</Badge>
               </div>
               
               {/* DATE RANGE FILTER */}
