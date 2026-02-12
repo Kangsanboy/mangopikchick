@@ -15,6 +15,8 @@ import { Users, CalendarCheck, Banknote, Save, Loader2, Check, X, Minus, Chevron
 interface Employee {
   id: string;
   name: string;
+  daily_base_salary: number;
+  overtime_rate: number;
 }
 
 interface AttendanceLog {
@@ -22,14 +24,7 @@ interface AttendanceLog {
   employee_id: string;
   date: string;
   status: 'Hadir' | 'Izin' | 'Alpha';
-  overtime_hours: number;
-}
-
-interface ExpenseData {
-  id: string;
-  category_name: string;
-  amount: number;
-  employee_id: string;
+  overtime_type: 'NONE' | 'HALF' | 'FULL'; // Tipe Lembur Baru
 }
 
 const Karyawan = () => {
@@ -44,14 +39,16 @@ const Karyawan = () => {
   const [currentWeekStart, setCurrentWeekStart] = useState(new Date()); 
 
   // Data
-  const [inputAttendance, setInputAttendance] = useState<{ [key: string]: { status: string } }>({});
+  const [inputAttendance, setInputAttendance] = useState<{ [key: string]: { status: string, overtime: string } }>({});
   const [weeklyLogs, setWeeklyLogs] = useState<AttendanceLog[]>([]);
-  const [dailyExpenses, setDailyExpenses] = useState<ExpenseData[]>([]);
-
-  // State Dialog Edit Absen
+  // Kita fetch semua logs untuk kalkulasi gaji periode tertentu (misal mingguan/bulanan)
+  // Untuk simpelnya, monitor gaji di bawah kita hitung berdasarkan VIEW MINGGUAN yang sedang tampil
+  
+  // State Dialog Edit
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [selectedLog, setSelectedLog] = useState<AttendanceLog | null>(null);
   const [editStatus, setEditStatus] = useState("Hadir");
+  const [editOvertimeType, setEditOvertimeType] = useState("NONE");
 
   useEffect(() => { 
     loadEmployees(); 
@@ -65,20 +62,19 @@ const Karyawan = () => {
   useEffect(() => {
     if (employees.length > 0) {
       loadWeeklyData();
-      loadDailyRealData(); 
+      loadDailyInputData();
     }
   }, [employees, absenDate, currentWeekStart]);
 
   // --- 1. LOAD DATA ---
   const loadEmployees = async () => {
     setLoading(true);
-    // Fetch dari tabel employees
-    const { data } = await supabase.from('employees').select('id, name').eq('is_active', true).order('name');
+    const { data } = await supabase.from('employees').select('*').eq('is_active', true).order('name');
     setEmployees(data || []);
     
     const initialInput: any = {};
     data?.forEach(emp => {
-      initialInput[emp.id] = { status: 'Hadir' };
+      initialInput[emp.id] = { status: 'Hadir', overtime: 'NONE' };
     });
     setInputAttendance(prev => ({ ...initialInput, ...prev }));
     setLoading(false);
@@ -94,22 +90,19 @@ const Karyawan = () => {
     setWeeklyLogs(data || []);
   };
 
-  const loadDailyRealData = async () => {
-    // 1. Absen Hari Ini
+  const loadDailyInputData = async () => {
     const { data: logs } = await supabase.from('attendance_logs').select('*').eq('date', absenDate);
     if (logs && logs.length > 0) {
       const loaded: any = {};
-      logs.forEach(log => { loaded[log.employee_id] = { status: log.status }; });
+      logs.forEach(log => { 
+        loaded[log.employee_id] = { status: log.status, overtime: log.overtime_type || 'NONE' }; 
+      });
       setInputAttendance(prev => ({ ...prev, ...loaded }));
     } else {
       const reset: any = {};
-      employees.forEach(emp => { reset[emp.id] = { status: 'Hadir' }; });
+      employees.forEach(emp => { reset[emp.id] = { status: 'Hadir', overtime: 'NONE' }; });
       setInputAttendance(reset);
     }
-
-    // 2. Gaji Real Hari Ini (Dari Operasional)
-    const { data: ops } = await supabase.from('operational_expenses').select('id, category_name, amount, employee_id').eq('date', absenDate).not('employee_id', 'is', null); 
-    setDailyExpenses(ops || []);
   };
 
   // --- 2. LOGIC MINGGUAN ---
@@ -129,17 +122,25 @@ const Karyawan = () => {
   };
   const weekDays = getWeekDays();
 
-  // --- 3. EDIT/DELETE ABSEN ---
+  // --- 3. CLICK HANDLER (EDIT) ---
   const handleCellClick = (log: AttendanceLog | undefined) => {
-    if (log) { setSelectedLog(log); setEditStatus(log.status); setIsEditOpen(true); } 
-    else { toast({ title: "Info", description: "Input absen di form bawah dulu bang." }); }
+    if (log) { 
+      setSelectedLog(log); 
+      setEditStatus(log.status); 
+      setEditOvertimeType(log.overtime_type || 'NONE');
+      setIsEditOpen(true); 
+    } 
+    else { toast({ title: "Info", description: "Input absen di form bawah dulu." }); }
   };
 
   const updateLog = async () => {
     if (!selectedLog) return;
     setLoading(true);
-    const { error } = await supabase.from('attendance_logs').update({ status: editStatus }).eq('id', selectedLog.id);
-    if (!error) { toast({ title: "Update Berhasil" }); setIsEditOpen(false); loadWeeklyData(); loadDailyRealData(); }
+    const { error } = await supabase.from('attendance_logs').update({ 
+      status: editStatus,
+      overtime_type: editOvertimeType 
+    }).eq('id', selectedLog.id);
+    if (!error) { toast({ title: "Update Berhasil" }); setIsEditOpen(false); loadWeeklyData(); loadDailyInputData(); }
     setLoading(false);
   };
 
@@ -147,7 +148,7 @@ const Karyawan = () => {
     if (!selectedLog || !confirm("Hapus absen ini?")) return;
     setLoading(true);
     const { error } = await supabase.from('attendance_logs').delete().eq('id', selectedLog.id);
-    if (!error) { toast({ title: "Dihapus" }); setIsEditOpen(false); loadWeeklyData(); loadDailyRealData(); }
+    if (!error) { toast({ title: "Dihapus" }); setIsEditOpen(false); loadWeeklyData(); loadDailyInputData(); }
     setLoading(false);
   };
 
@@ -155,21 +156,23 @@ const Karyawan = () => {
   const saveAttendance = async () => {
     setLoading(true);
     const updates = employees.map(emp => ({
-      employee_id: emp.id, // Pakai employee_id baru
+      employee_id: emp.id,
       date: absenDate,
       status: inputAttendance[emp.id]?.status || 'Hadir',
-      overtime_hours: 0 
+      overtime_type: inputAttendance[emp.id]?.overtime || 'NONE'
     }));
 
-    // Upsert berdasarkan employee_id
     const { error } = await supabase.from('attendance_logs').upsert(updates, { onConflict: 'employee_id,date' });
     if (error) toast({ title: "Gagal", description: error.message, variant: "destructive" });
-    else { toast({ title: "Berhasil", description: "Absensi tersimpan!" }); loadWeeklyData(); loadDailyRealData(); }
+    else { toast({ title: "Berhasil", description: "Absensi tersimpan!" }); loadWeeklyData(); }
     setLoading(false);
   };
 
-  const handleInputChange = (id: string, value: string) => {
-    setInputAttendance(prev => ({ ...prev, [id]: { status: value } }));
+  const handleInputChange = (id: string, field: 'status' | 'overtime', value: string) => {
+    setInputAttendance(prev => ({ 
+      ...prev, 
+      [id]: { ...prev[id], [field]: value } 
+    }));
   };
 
   const formatRp = (n: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n);
@@ -178,7 +181,7 @@ const Karyawan = () => {
     <Layout>
       <div className="space-y-8 pb-20">
         <div className="flex justify-between items-center">
-          <div><h1 className="text-3xl font-bold text-gray-900">Karyawan & Gaji</h1><p className="text-gray-600">Monitoring Absensi & Gaji</p></div>
+          <div><h1 className="text-3xl font-bold text-gray-900">Karyawan & Gaji</h1><p className="text-gray-600">Monitoring Absensi Mingguan & Kalkulasi Gaji</p></div>
         </div>
 
         {/* --- MONITOR ABSEN MINGGUAN --- */}
@@ -203,12 +206,20 @@ const Karyawan = () => {
                       const log = weeklyLogs.find(l => l.employee_id === emp.id && l.date === dateStr);
                       let Icon = <Minus className="h-3 w-3 text-gray-200 mx-auto" />;
                       let bgColor = "cursor-pointer hover:bg-gray-100"; 
+                      let OvertimeBadge = null;
+
                       if (log) {
-                        if (log.status === 'Hadir') { Icon = <Check className="h-4 w-4 text-green-600 mx-auto font-bold" />; bgColor = "bg-green-50/50 cursor-pointer hover:bg-green-100"; } 
+                        if (log.status === 'Hadir') { 
+                          Icon = <Check className="h-4 w-4 text-green-600 mx-auto font-bold" />; 
+                          bgColor = "bg-green-50/50 cursor-pointer hover:bg-green-100"; 
+                        } 
                         else if (log.status === 'Izin') { Icon = <span className="text-xs font-bold text-yellow-600 bg-yellow-100 px-2 py-0.5 rounded">I</span>; bgColor = "cursor-pointer hover:bg-gray-100"; } 
                         else if (log.status === 'Alpha') { Icon = <X className="h-4 w-4 text-red-500 mx-auto" />; bgColor = "bg-red-50/50 cursor-pointer hover:bg-red-100"; }
+                        
+                        if (log.overtime_type === 'FULL') OvertimeBadge = <span className="text-[9px] bg-blue-600 text-white px-1 rounded block mt-1">FULL</span>;
+                        if (log.overtime_type === 'HALF') OvertimeBadge = <span className="text-[9px] bg-blue-300 text-blue-900 px-1 rounded block mt-1">HALF</span>;
                       }
-                      return <TableCell key={i} className={`text-center p-2 border-r last:border-0 ${bgColor} ${dateStr === absenDate ? 'ring-1 ring-indigo-200 ring-inset' : ''}`} onClick={() => handleCellClick(log)}>{Icon}</TableCell>;
+                      return <TableCell key={i} className={`text-center p-2 border-r last:border-0 ${bgColor} ${dateStr === absenDate ? 'ring-1 ring-indigo-200 ring-inset' : ''}`} onClick={() => handleCellClick(log)}>{Icon}{OvertimeBadge}</TableCell>;
                     })}
                   </TableRow>
                 ))}
@@ -217,28 +228,35 @@ const Karyawan = () => {
           </CardContent>
         </Card>
 
-        {/* --- GRID UTAMA (KIRI: ABSEN, KANAN: GAJI) --- */}
+        {/* --- GRID INPUT & HASIL GAJI --- */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
           
-          {/* KIRI: FORM INPUT ABSENSI (BERSIH) */}
+          {/* KIRI: FORM INPUT ABSENSI */}
           <Card className="border-t-4 border-t-blue-500 h-full">
             <CardHeader className="flex flex-row items-center justify-between bg-blue-50/30 pb-4 border-b">
-              <div className="space-y-1"><CardTitle className="flex items-center gap-2 text-blue-800"><CalendarCheck className="h-5 w-5"/> Input Absensi</CardTitle><p className="text-xs text-gray-500">Catat kehadiran harian disini</p></div>
+              <div className="space-y-1"><CardTitle className="flex items-center gap-2 text-blue-800"><CalendarCheck className="h-5 w-5"/> Input Absensi</CardTitle><p className="text-xs text-gray-500">Pilih status kerja & lembur</p></div>
               <div className="flex items-center gap-2 bg-white p-1 rounded border shadow-sm"><Label className="pl-2 text-xs font-bold text-gray-500">TANGGAL:</Label><Input type="date" value={absenDate} onChange={e => setAbsenDate(e.target.value)} className="w-auto h-8 border-none focus-visible:ring-0" /></div>
             </CardHeader>
             <CardContent className="p-0">
               <Table>
-                <TableHeader className="bg-gray-100"><TableRow><TableHead className="w-[50%]">Nama Karyawan</TableHead><TableHead className="w-[50%] text-center">Status Kehadiran</TableHead></TableRow></TableHeader>
+                <TableHeader className="bg-gray-100"><TableRow><TableHead className="w-[40%]">Nama Karyawan</TableHead><TableHead className="w-[30%]">Kerja</TableHead><TableHead className="w-[30%]">Lembur</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {employees.map(emp => {
                     const status = inputAttendance[emp.id]?.status || 'Hadir';
+                    const overtime = inputAttendance[emp.id]?.overtime || 'NONE';
                     return (
                       <TableRow key={emp.id} className="hover:bg-blue-50/30 transition-colors">
                         <TableCell className="font-bold text-gray-700">{emp.name}</TableCell>
-                        <TableCell className="text-center">
-                          <Select value={status} onValueChange={(v) => handleInputChange(emp.id, v)}>
-                            <SelectTrigger className={`h-8 w-full border-0 shadow-sm mx-auto ${status === 'Hadir' ? 'bg-green-100 text-green-800 font-medium' : status === 'Alpha' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}`}><SelectValue/></SelectTrigger>
+                        <TableCell>
+                          <Select value={status} onValueChange={(v) => handleInputChange(emp.id, 'status', v)}>
+                            <SelectTrigger className={`h-8 w-full border-0 shadow-sm ${status === 'Hadir' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}><SelectValue/></SelectTrigger>
                             <SelectContent><SelectItem value="Hadir">Hadir</SelectItem><SelectItem value="Izin">Izin</SelectItem><SelectItem value="Alpha">Alpha</SelectItem></SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell>
+                          <Select value={overtime} onValueChange={(v) => handleInputChange(emp.id, 'overtime', v)}>
+                            <SelectTrigger className={`h-8 w-full border-0 shadow-sm ${overtime === 'FULL' ? 'bg-blue-100 text-blue-800' : overtime === 'HALF' ? 'bg-blue-50 text-blue-600' : ''}`}><SelectValue/></SelectTrigger>
+                            <SelectContent><SelectItem value="NONE">-</SelectItem><SelectItem value="HALF">Setengah</SelectItem><SelectItem value="FULL">Full</SelectItem></SelectContent>
                           </Select>
                         </TableCell>
                       </TableRow>
@@ -250,50 +268,51 @@ const Karyawan = () => {
             </CardContent>
           </Card>
 
-          {/* KANAN: MONITOR DETAIL GAJI (REAL DARI OPERASIONAL) */}
+          {/* KANAN: MONITOR GAJI MINGGUAN (OTOMATIS) */}
           <Card className="border-t-4 border-t-emerald-500 h-full">
             <CardHeader className="bg-emerald-50/30 pb-4 border-b">
               <div className="flex justify-between items-center">
-                <CardTitle className="flex items-center gap-2 text-emerald-800"><Wallet className="h-5 w-5"/> Monitor Gaji Hari Ini</CardTitle>
-                <Badge variant="outline" className="bg-white border-emerald-200 text-emerald-700">{new Date(absenDate).toLocaleDateString('id-ID', {day:'numeric', month:'long'})}</Badge>
+                <CardTitle className="flex items-center gap-2 text-emerald-800"><Wallet className="h-5 w-5"/> Estimasi Gaji Mingguan</CardTitle>
+                <Badge variant="outline" className="bg-white border-emerald-200 text-emerald-700">Periode Tabel Diatas</Badge>
               </div>
-              <p className="text-xs text-gray-500 mt-1">Data diambil realtime dari menu Operasional</p>
+              <p className="text-xs text-gray-500 mt-1">Dihitung otomatis: (Hadir x Gaji Pokok) + (Lembur x Rate)</p>
             </CardHeader>
             <CardContent className="p-0">
               <Table>
                 <TableHeader className="bg-gray-100"><TableRow><TableHead>Nama</TableHead><TableHead className="text-right">Gaji Pokok</TableHead><TableHead className="text-right">Lembur</TableHead><TableHead className="text-right font-bold">Total</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {employees.map(emp => {
-                    const myExpenses = dailyExpenses.filter(e => e.employee_id === emp.id);
-                    let receivedPokok = 0;
-                    let receivedLembur = 0;
+                    // Filter log absen minggu ini punya karyawan ini
+                    const myLogs = weeklyLogs.filter(l => l.employee_id === emp.id);
+                    
+                    let totalPokok = 0;
+                    let totalLembur = 0;
 
-                    myExpenses.forEach(exp => {
-                      const cat = exp.category_name.toLowerCase();
-                      if (cat.includes('lembur') || cat.includes('overtime') || cat.includes('bonus')) {
-                        receivedLembur += exp.amount;
-                      } else {
-                        receivedPokok += exp.amount;
+                    myLogs.forEach(log => {
+                      // 1. Hitung Pokok (Kalau Hadir)
+                      if (log.status === 'Hadir') {
+                        totalPokok += emp.daily_base_salary;
+                      }
+                      
+                      // 2. Hitung Lembur (Full atau Half)
+                      if (log.overtime_type === 'FULL') {
+                        totalLembur += emp.overtime_rate;
+                      } else if (log.overtime_type === 'HALF') {
+                        totalLembur += (emp.overtime_rate / 2);
                       }
                     });
 
-                    const totalReceived = receivedPokok + receivedLembur;
+                    const grandTotal = totalPokok + totalLembur;
                     
                     return (
                       <TableRow key={emp.id} className="hover:bg-emerald-50/30">
                         <TableCell className="font-medium text-gray-700">{emp.name}</TableCell>
-                        <TableCell className={`text-right ${receivedPokok > 0 ? 'text-gray-900' : 'text-gray-300'}`}>{receivedPokok > 0 ? formatRp(receivedPokok) : "-"}</TableCell>
-                        <TableCell className={`text-right ${receivedLembur > 0 ? 'text-orange-600 font-medium' : 'text-gray-300'}`}>{receivedLembur > 0 ? formatRp(receivedLembur) : "-"}</TableCell>
-                        <TableCell className={`text-right font-bold ${totalReceived > 0 ? 'text-emerald-700' : 'text-gray-300'}`}>{totalReceived > 0 ? formatRp(totalReceived) : "-"}</TableCell>
+                        <TableCell className="text-right text-gray-600">{formatRp(totalPokok)}</TableCell>
+                        <TableCell className="text-right text-orange-600 font-medium">{formatRp(totalLembur)}</TableCell>
+                        <TableCell className="text-right font-bold text-emerald-700">{formatRp(grandTotal)}</TableCell>
                       </TableRow>
                     )
                   })}
-                  <TableRow className="bg-gray-50 border-t-2 border-gray-200">
-                    <TableCell className="font-bold text-gray-900">TOTAL</TableCell>
-                    <TableCell colSpan={3} className="text-right font-bold text-lg text-emerald-800">
-                      {formatRp(dailyExpenses.reduce((sum, e) => sum + e.amount, 0))}
-                    </TableCell>
-                  </TableRow>
                 </TableBody>
               </Table>
             </CardContent>
@@ -302,8 +321,11 @@ const Karyawan = () => {
         </div>
 
         {/* DIALOG EDIT ABSEN */}
-        <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}><DialogContent><DialogHeader><DialogTitle>Edit Status Absen</DialogTitle></DialogHeader>
-            <div className="py-4"><Label>Status Kehadiran</Label><Select value={editStatus} onValueChange={setEditStatus}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Hadir">Hadir</SelectItem><SelectItem value="Izin">Izin</SelectItem><SelectItem value="Alpha">Alpha</SelectItem></SelectContent></Select></div>
+        <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}><DialogContent><DialogHeader><DialogTitle>Edit Absen</DialogTitle></DialogHeader>
+            <div className="py-2 space-y-4">
+              <div><Label>Status Kerja</Label><Select value={editStatus} onValueChange={setEditStatus}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Hadir">Hadir</SelectItem><SelectItem value="Izin">Izin</SelectItem><SelectItem value="Alpha">Alpha</SelectItem></SelectContent></Select></div>
+              <div><Label>Lembur</Label><Select value={editOvertimeType} onValueChange={(v:any) => setEditOvertimeType(v)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="NONE">-</SelectItem><SelectItem value="HALF">Setengah</SelectItem><SelectItem value="FULL">Full</SelectItem></SelectContent></Select></div>
+            </div>
             <DialogFooter><Button variant="destructive" onClick={deleteLog} disabled={loading}>{loading ? <Loader2 className="animate-spin"/> : <Trash2 className="h-4 w-4 mr-2"/>} Hapus Data</Button><Button onClick={updateLog} disabled={loading}>{loading ? <Loader2 className="animate-spin"/> : <Save className="h-4 w-4 mr-2"/>} Simpan Perubahan</Button></DialogFooter>
         </DialogContent></Dialog>
       </div>
