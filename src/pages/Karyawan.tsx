@@ -27,13 +27,6 @@ interface AttendanceLog {
   overtime_type: 'NONE' | 'HALF' | 'FULL';
 }
 
-interface ExpenseData {
-  id: string;
-  category_name: string;
-  amount: number;
-  employee_id: string;
-}
-
 const Karyawan = () => {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
@@ -41,10 +34,10 @@ const Karyawan = () => {
   // --- STATES ---
   const [employees, setEmployees] = useState<Employee[]>([]);
   
-  // State Tanggal Absen (Untuk Input)
+  // State Tanggal Absen (Untuk Input Harian)
   const [absenDate, setAbsenDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }));
   
-  // State Tanggal Gaji (Range)
+  // State Tanggal Gaji (Range Filter)
   const [salaryStartDate, setSalaryStartDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }));
   const [salaryEndDate, setSalaryEndDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }));
 
@@ -53,7 +46,9 @@ const Karyawan = () => {
   // Data
   const [inputAttendance, setInputAttendance] = useState<{ [key: string]: { status: string, overtime: string } }>({});
   const [weeklyLogs, setWeeklyLogs] = useState<AttendanceLog[]>([]);
-  const [salaryExpenses, setSalaryExpenses] = useState<ExpenseData[]>([]);
+  
+  // PERBAIKAN: State khusus untuk menampung log absen sesuai range tanggal gaji (bukan ambil dari operasional lagi)
+  const [salaryLogs, setSalaryLogs] = useState<AttendanceLog[]>([]); 
 
   // State Dialog Edit
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -71,25 +66,21 @@ const Karyawan = () => {
     setCurrentWeekStart(monday);
   }, []);
 
-  // --- UPDATE LOGIC TANGGAL GAJI (SENIN - MINGGU) ---
+  // Sync Salary Date with Absen Date (Auto set mingguan)
   useEffect(() => {
-    // Setiap kali tanggal absen berubah, set range gaji ke SENIN - MINGGU minggu tersebut
     const d = new Date(absenDate);
     const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Cari hari Senin
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Cari Senin
     
     const monday = new Date(d);
     monday.setDate(diff);
     
     const sunday = new Date(monday);
-    sunday.setDate(monday.getDate() + 6); // Senin + 6 hari = Minggu
+    sunday.setDate(monday.getDate() + 6); // Cari Minggu
 
     setSalaryStartDate(monday.toLocaleDateString('en-CA'));
     setSalaryEndDate(sunday.toLocaleDateString('en-CA'));
-    
-    // Update juga view tabel mingguan (biar sinkron sama yang dipilih)
     setCurrentWeekStart(monday);
-
   }, [absenDate]);
 
   useEffect(() => {
@@ -99,10 +90,10 @@ const Karyawan = () => {
     }
   }, [employees, absenDate, currentWeekStart]);
 
-  // Load Salary Data setiap kali Range Tanggal Gaji berubah
+  // Load Data Absen untuk Monitor Gaji setiap kali Range Tanggal berubah
   useEffect(() => {
     if (employees.length > 0) {
-      loadSalaryData();
+      loadSalaryLogs();
     }
   }, [salaryStartDate, salaryEndDate, employees]);
 
@@ -145,13 +136,13 @@ const Karyawan = () => {
     }
   };
 
-  const loadSalaryData = async () => {
-    const { data: ops } = await supabase.from('operational_expenses')
-      .select('id, category_name, amount, employee_id')
+  // PERBAIKAN: Ambil Log Absen untuk perhitungan gaji (BUKAN ambil data expenses)
+  const loadSalaryLogs = async () => {
+    const { data } = await supabase.from('attendance_logs')
+      .select('*')
       .gte('date', salaryStartDate)
-      .lte('date', salaryEndDate)
-      .not('employee_id', 'is', null); 
-    setSalaryExpenses(ops || []);
+      .lte('date', salaryEndDate);
+    setSalaryLogs(data || []);
   };
 
   // --- 2. LOGIC MINGGUAN ---
@@ -168,7 +159,6 @@ const Karyawan = () => {
     const newStart = new Date(currentWeekStart);
     newStart.setDate(newStart.getDate() + (offset * 7));
     setCurrentWeekStart(newStart);
-    // Kita tidak ubah absenDate otomatis disini biar user yang kontrol lewat input tanggal
   };
   const weekDays = getWeekDays();
 
@@ -190,7 +180,14 @@ const Karyawan = () => {
       status: editStatus,
       overtime_type: editOvertimeType 
     }).eq('id', selectedLog.id);
-    if (!error) { toast({ title: "Update Berhasil" }); setIsEditOpen(false); loadWeeklyData(); loadDailyInputData(); }
+    
+    if (!error) { 
+      toast({ title: "Update Berhasil" }); 
+      setIsEditOpen(false); 
+      loadWeeklyData(); 
+      loadDailyInputData();
+      loadSalaryLogs(); // Refresh Monitor Gaji
+    }
     setLoading(false);
   };
 
@@ -198,7 +195,13 @@ const Karyawan = () => {
     if (!selectedLog || !confirm("Hapus absen ini?")) return;
     setLoading(true);
     const { error } = await supabase.from('attendance_logs').delete().eq('id', selectedLog.id);
-    if (!error) { toast({ title: "Dihapus" }); setIsEditOpen(false); loadWeeklyData(); loadDailyInputData(); }
+    if (!error) { 
+      toast({ title: "Dihapus" }); 
+      setIsEditOpen(false); 
+      loadWeeklyData(); 
+      loadDailyInputData();
+      loadSalaryLogs(); // Refresh Monitor Gaji
+    }
     setLoading(false);
   };
 
@@ -214,7 +217,11 @@ const Karyawan = () => {
 
     const { error } = await supabase.from('attendance_logs').upsert(updates, { onConflict: 'employee_id,date' });
     if (error) toast({ title: "Gagal", description: error.message, variant: "destructive" });
-    else { toast({ title: "Berhasil", description: "Absensi tersimpan!" }); loadWeeklyData(); }
+    else { 
+      toast({ title: "Berhasil", description: "Absensi tersimpan!" }); 
+      loadWeeklyData(); 
+      loadSalaryLogs(); // Refresh gaji realtime
+    }
     setLoading(false);
   };
 
@@ -226,6 +233,20 @@ const Karyawan = () => {
   };
 
   const formatRp = (n: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n);
+
+  // --- KALKULASI TOTAL GAJI (REALTIME DARI DATA MASTER) ---
+  const totalSalaryEstimate = employees.reduce((sum, emp) => {
+    const myLogs = salaryLogs.filter(l => l.employee_id === emp.id);
+    let empTotal = 0;
+    myLogs.forEach(log => {
+      // Hitung Pokok
+      if (log.status === 'Hadir') empTotal += emp.daily_base_salary;
+      // Hitung Lembur
+      if (log.overtime_type === 'FULL') empTotal += emp.overtime_rate;
+      if (log.overtime_type === 'HALF') empTotal += (emp.overtime_rate / 2);
+    });
+    return sum + empTotal;
+  }, 0);
 
   return (
     <Layout>
@@ -318,12 +339,12 @@ const Karyawan = () => {
             </CardContent>
           </Card>
 
-          {/* KANAN: MONITOR GAJI RANGE (DENGAN FILTER TANGGAL OTOMATIS) */}
+          {/* KANAN: MONITOR GAJI RANGE (PERBAIKAN LOGIKA) */}
           <Card className="border-t-4 border-t-emerald-500 h-full">
             <CardHeader className="bg-emerald-50/30 pb-4 border-b">
               <div className="flex justify-between items-center mb-3">
-                <CardTitle className="flex items-center gap-2 text-emerald-800"><Wallet className="h-5 w-5"/> Monitor Gaji</CardTitle>
-                <Badge variant="outline" className="bg-white border-emerald-200 text-emerald-700">Otomatis Mingguan</Badge>
+                <CardTitle className="flex items-center gap-2 text-emerald-800"><Wallet className="h-5 w-5"/> Monitor Gaji (Estimasi)</CardTitle>
+                <Badge variant="outline" className="bg-white border-emerald-200 text-emerald-700">Auto Sync</Badge>
               </div>
               
               {/* DATE RANGE FILTER */}
@@ -344,26 +365,32 @@ const Karyawan = () => {
                 <TableHeader className="bg-gray-100"><TableRow><TableHead>Nama</TableHead><TableHead className="text-right">Gaji Pokok</TableHead><TableHead className="text-right">Lembur</TableHead><TableHead className="text-right font-bold">Total</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {employees.map(emp => {
-                    const myExpenses = salaryExpenses.filter(e => e.employee_id === emp.id);
-                    let receivedPokok = 0;
-                    let receivedLembur = 0;
+                    // Filter log absensi yang masuk range tanggal terpilih untuk karyawan ini
+                    const myLogs = salaryLogs.filter(l => l.employee_id === emp.id);
+                    let estimatedPokok = 0;
+                    let estimatedLembur = 0;
 
-                    myExpenses.forEach(exp => {
-                      const cat = exp.category_name.toLowerCase();
-                      if (cat.includes('lembur') || cat.includes('overtime') || cat.includes('bonus')) {
-                        receivedLembur += exp.amount;
-                      } else {
-                        receivedPokok += exp.amount;
+                    myLogs.forEach(log => {
+                      // 1. Hitung Gaji Pokok (Hadir * Rate Master)
+                      if (log.status === 'Hadir') {
+                        estimatedPokok += emp.daily_base_salary;
+                      }
+                      
+                      // 2. Hitung Lembur (Tipe * Rate Master)
+                      if (log.overtime_type === 'FULL') {
+                        estimatedLembur += emp.overtime_rate;
+                      } else if (log.overtime_type === 'HALF') {
+                        estimatedLembur += (emp.overtime_rate / 2);
                       }
                     });
 
-                    const grandTotal = receivedPokok + receivedLembur;
+                    const grandTotal = estimatedPokok + estimatedLembur;
                     
                     return (
                       <TableRow key={emp.id} className="hover:bg-emerald-50/30">
                         <TableCell className="font-medium text-gray-700">{emp.name}</TableCell>
-                        <TableCell className="text-right text-gray-600">{receivedPokok > 0 ? formatRp(receivedPokok) : '-'}</TableCell>
-                        <TableCell className="text-right text-orange-600 font-medium">{receivedLembur > 0 ? formatRp(receivedLembur) : '-'}</TableCell>
+                        <TableCell className="text-right text-gray-600">{estimatedPokok > 0 ? formatRp(estimatedPokok) : '-'}</TableCell>
+                        <TableCell className="text-right text-orange-600 font-medium">{estimatedLembur > 0 ? formatRp(estimatedLembur) : '-'}</TableCell>
                         <TableCell className="text-right font-bold text-emerald-700">{grandTotal > 0 ? formatRp(grandTotal) : '-'}</TableCell>
                       </TableRow>
                     )
@@ -371,9 +398,9 @@ const Karyawan = () => {
                   
                   {/* TOTAL FOOTER */}
                   <TableRow className="bg-gray-50 border-t-2 border-gray-200">
-                    <TableCell className="font-bold text-gray-900">TOTAL</TableCell>
+                    <TableCell className="font-bold text-gray-900">TOTAL ESTIMASI</TableCell>
                     <TableCell colSpan={3} className="text-right font-bold text-lg text-emerald-800">
-                      {formatRp(salaryExpenses.reduce((sum, e) => sum + e.amount, 0))}
+                      {formatRp(totalSalaryEstimate)}
                     </TableCell>
                   </TableRow>
                 </TableBody>
