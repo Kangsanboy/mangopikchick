@@ -228,7 +228,7 @@ const Karyawan = () => {
           <div class="footer">
             <div>${dateNow}</div>
             <div style="margin-top: 40px; text-align: center; float: right;">
-              <div class="ttd">Pemilik Toko</div>
+              <div class="ttd">..................</div>
             </div>
           </div>
           
