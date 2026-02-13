@@ -67,7 +67,7 @@ const Karyawan = () => {
   const [slipEndDate, setSlipEndDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }));
   const [selectedSlipEmployee, setSelectedSlipEmployee] = useState<string>("");
   
-  // STATE PENGURANGAN BARU (LIST)
+  // STATE POTONGAN (Dulu Pengurangan)
   const [deductionList, setDeductionList] = useState<DeductionItem[]>([]);
   const [newDedDesc, setNewDedDesc] = useState("");
   const [newDedAmount, setNewDedAmount] = useState("");
@@ -160,7 +160,7 @@ const Karyawan = () => {
     setSalaryLogs(data || []);
   };
 
-  // --- 2. LOGIC HITUNG SLIP GAJI (Pokok & Lembur) ---
+  // --- 2. LOGIC HITUNG SLIP GAJI ---
   const calculateSlipSalary = async () => {
     const { data } = await supabase.from('attendance_logs')
       .select('*')
@@ -184,7 +184,7 @@ const Karyawan = () => {
     setSlipData({ pokok: totalPokok, lembur: totalLembur });
   };
 
-  // --- LOGIC TAMBAH/HAPUS PENGURANGAN ---
+  // --- LOGIC TAMBAH/HAPUS POTONGAN ---
   const addDeduction = () => {
     if (!newDedDesc || !newDedAmount) return;
     const amount = parseInt(newDedAmount);
@@ -205,16 +205,15 @@ const Karyawan = () => {
     setDeductionList(deductionList.filter(item => item.id !== id));
   };
 
-  // --- 3. PRINT SLIP (DENGAN RINCIAN PENGURANGAN) ---
+  // --- 3. PRINT SLIP (JUDUL DIGANTI JADI POTONGAN) ---
   const handlePrintSlip = () => {
     const emp = employees.find(e => e.id === selectedSlipEmployee);
     if (!emp) return;
 
-    const totalPengurangan = deductionList.reduce((sum, item) => sum + item.amount, 0);
-    const totalTerima = slipData.pokok + slipData.lembur - totalPengurangan;
+    const totalPotongan = deductionList.reduce((sum, item) => sum + item.amount, 0);
+    const totalTerima = slipData.pokok + slipData.lembur - totalPotongan;
     const dateNow = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
 
-    // Generate HTML untuk list pengurangan
     const deductionRows = deductionList.map(d => `
       <div class="row" style="padding-left: 10px; font-size: 10px; color: #444;">
         <span>- ${d.description}</span> 
@@ -260,11 +259,11 @@ const Karyawan = () => {
             <div class="row"><span>Gaji Lembur</span> <span>${formatRp(slipData.lembur)}</span></div>
             
             ${deductionList.length > 0 ? `
-              <div class="row" style="margin-top: 5px; font-weight:bold;"><span>Rincian Pengurangan:</span></div>
+              <div class="row" style="margin-top: 5px; font-weight:bold;"><span>Rincian Potongan:</span></div>
               ${deductionRows}
               <div class="row" style="border-top: 1px dotted #ccc; margin-top: 2px; padding-top:2px;">
-                <span>Total Pengurangan</span> 
-                <span>- ${formatRp(totalPengurangan)}</span>
+                <span>Total Potongan</span> 
+                <span>- ${formatRp(totalPotongan)}</span>
               </div>
             ` : ''}
           </div>
@@ -277,7 +276,7 @@ const Karyawan = () => {
           <div class="footer">
             <div>${dateNow}</div>
             <div style="margin-top: 40px; text-align: center; float: right;">
-              <div class="ttd">........</div>
+              <div class="ttd">Pemilik Toko</div>
             </div>
           </div>
           
@@ -350,7 +349,7 @@ const Karyawan = () => {
 
   const formatRp = (n: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n);
 
-  const totalDeduction = deductionList.reduce((sum, d) => sum + d.amount, 0);
+  const totalPotongan = deductionList.reduce((sum, d) => sum + d.amount, 0);
 
   return (
     <Layout>
@@ -461,7 +460,7 @@ const Karyawan = () => {
 
         </div>
 
-        {/* --- FITUR BARU: GENERATOR SLIP GAJI DENGAN LIST PENGURANGAN --- */}
+        {/* --- FITUR BARU: GENERATOR SLIP GAJI DENGAN LIST POTONGAN --- */}
         <Card className="border-t-4 border-t-purple-600 shadow-lg bg-gradient-to-br from-white to-purple-50">
           <CardHeader className="pb-2 border-b">
             <CardTitle className="flex items-center gap-2 text-purple-800"><FileText className="h-6 w-6"/> Pembuatan Slip Gaji</CardTitle>
@@ -499,11 +498,11 @@ const Karyawan = () => {
                 )}
               </div>
 
-              {/* Kolom 3 & 4: Pengurangan & Cetak */}
+              {/* Kolom 3 & 4: Potongan & Cetak */}
               {selectedSlipEmployee && (
                 <div className="md:col-span-2 space-y-4 animate-in fade-in slide-in-from-right-4 border-l pl-6 border-purple-100">
                   <div className="space-y-2">
-                    <Label className="text-red-600 font-semibold">3. Input Pengurangan (Kasbon/Lainnya)</Label>
+                    <Label className="text-red-600 font-semibold">3. Input Potongan (Kasbon/Lainnya)</Label>
                     <div className="flex gap-2 items-end">
                       <div className="flex-1">
                         <Label className="text-xs text-gray-500">Keterangan</Label>
@@ -516,7 +515,7 @@ const Karyawan = () => {
                       <Button size="sm" onClick={addDeduction} className="bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 h-8"><PlusCircle className="h-4 w-4"/></Button>
                     </div>
 
-                    {/* LIST PENGURANGAN */}
+                    {/* LIST POTONGAN */}
                     {deductionList.length > 0 && (
                       <div className="bg-red-50/50 rounded border border-red-100 p-2 mt-2">
                         <table className="w-full text-xs">
@@ -530,7 +529,7 @@ const Karyawan = () => {
                             ))}
                             <tr className="font-bold">
                               <td className="pt-2 text-red-800">Total Potongan</td>
-                              <td className="pt-2 text-right text-red-800">{formatRp(totalDeduction)}</td>
+                              <td className="pt-2 text-right text-red-800">{formatRp(totalPotongan)}</td>
                               <td></td>
                             </tr>
                           </tbody>
@@ -542,7 +541,7 @@ const Karyawan = () => {
                   <div className="pt-4 border-t border-purple-100 flex justify-between items-center">
                     <div>
                       <p className="text-xs text-gray-500">Total Gaji Bersih</p>
-                      <p className="text-2xl font-bold text-purple-700">{formatRp(slipData.pokok + slipData.lembur - totalDeduction)}</p>
+                      <p className="text-2xl font-bold text-purple-700">{formatRp(slipData.pokok + slipData.lembur - totalPotongan)}</p>
                     </div>
                     <Button size="lg" onClick={handlePrintSlip} className="bg-purple-700 hover:bg-purple-800 shadow-lg"><Printer className="mr-2 h-5 w-5"/> Cetak Slip</Button>
                   </div>
