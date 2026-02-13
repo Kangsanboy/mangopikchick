@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { SaleData, TABLE_NAMES } from "@/types/database";
-import { Download, Printer, Wallet, AlertCircle, Loader2, Filter, Package } from "lucide-react";
+import { Download, Printer, Wallet, AlertCircle, Loader2, Filter, Package, Image as ImageIcon } from "lucide-react";
 
 interface ExtendedSaleData extends SaleData {
   payment_status?: string;
@@ -110,122 +110,218 @@ const LaporanPenjualan = () => {
     finally { setUpdateLoading(false); }
   };
 
+  // --- LOGIC PRINT (HTML) ---
   const handlePrint = (tx: GroupedTransaction) => {
     const sisaNotaIni = Math.max(0, tx.total_price - tx.total_paid);
-    
-    // Hutang Lama
     const hutangLama = groupedTransactions
-      .filter(t => 
-        t.customer_name === tx.customer_name && 
-        t.id !== tx.id && 
-        new Date(t.created_at) < new Date(tx.created_at)
-      )
+      .filter(t => t.customer_name === tx.customer_name && t.id !== tx.id && new Date(t.created_at) < new Date(tx.created_at))
       .reduce((sum, t) => sum + Math.max(0, t.total_price - t.total_paid), 0);
-
     const totalTagihan = sisaNotaIni + hutangLama;
 
     const itemsHtml = tx.items.map(item => {
-      // Cek Logic Pcs vs Kg
       const isPcs = item.unit_type === 'pcs' || (item.weight === 0 && item.quantity > 0);
-      
-      let detailText = "";
-      if (isPcs) {
-        detailText = `${item.quantity} Pcs @${formatCurrency(item.price_per_kg)}`;
-      } else {
-        const qtyPrefix = item.quantity > 0 ? `${item.quantity} ekor x ` : '';
-        detailText = `${qtyPrefix}${item.weight} Kg @${formatCurrency(item.price_per_kg)}`;
-      }
-
+      let detailText = isPcs ? `${item.quantity} Pcs @${formatCurrency(item.price_per_kg)}` : `${item.quantity > 0 ? item.quantity + ' ekor x ' : ''}${item.weight} Kg @${formatCurrency(item.price_per_kg)}`;
       return `
       <div style="margin-bottom: 4px; border-bottom: 1px dotted #ccc; padding-bottom: 2px;">
-        <div style="display:flex; justify-content:space-between; font-weight:bold; font-size: 10px;">
-           <span>${item.product_type}</span><span>${formatCurrency(item.total_price)}</span>
-        </div>
+        <div style="display:flex; justify-content:space-between; font-weight:bold; font-size: 10px;"><span>${item.product_type}</span><span>${formatCurrency(item.total_price)}</span></div>
         <div style="font-size:9px; color:#333;">${detailText}</div>
       </div>`;
     }).join('');
 
-    const receiptContent = `
-      <html><head><title>Struk</title><style>
-        @page { size: 58mm auto; margin: 0; }
-        body { font-family: 'Courier New', monospace; font-size: 10px; width: 58mm; margin: 0; padding: 5px; color: #000; background: #fff;}
-        .header { text-align: center; margin-bottom: 8px; border-bottom: 1px dashed #000; padding-bottom:5px;}
-        .title { font-size: 12px; font-weight: 800; margin-bottom: 2px; }
-        .address { font-size: 8px; word-wrap: break-word; line-height: 1.2; }
-        .row { display: flex; justify-content: space-between; margin-bottom: 2px; }
-        .total-row { font-weight: 800; font-size: 11px; margin-top: 5px; border-top: 1px dashed #000; padding-top:5px; }
-        .sub-row { font-size: 10px; margin-bottom: 2px; color: #333; }
-        .debt-row { font-weight: 800; font-size: 11px; margin-top: 8px; border-top: 2px double #000; padding-top:5px; }
-        .footer { text-align: center; margin-top: 15px; font-size: 8px; }
-        .status-box { border: 1px solid #000; padding: 2px 4px; display: inline-block; margin-top: 5px; font-weight:bold; font-size: 10px; }
-      </style></head><body>
-      
-      <div class="header">
-        <div class="title">PA IYAT BROILER</div>
-        <div class="address">Jl. Wr. Lobak, Gandasari, Kec. Katapang, Kab. Bandung 40921</div>
-      </div>
-      
-      <div class="row"><span>Tgl: ${new Date(tx.date).toLocaleDateString('id-ID')}</span></div>
-      <div class="row"><span>Plg: ${tx.customer_name}</span></div>
-      <div class="row"><span>Jam: ${new Date(tx.created_at).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}</span></div>
-      
+    const receiptContent = `<html><head><title>Struk</title><style>@page { size: 58mm auto; margin: 0; } body { font-family: 'Courier New', monospace; font-size: 10px; width: 58mm; margin: 0; padding: 5px; color: #000; background: #fff;} .header { text-align: center; margin-bottom: 8px; border-bottom: 1px dashed #000; padding-bottom:5px;} .title { font-size: 12px; font-weight: 800; margin-bottom: 2px; } .address { font-size: 8px; word-wrap: break-word; line-height: 1.2; } .row { display: flex; justify-content: space-between; margin-bottom: 2px; } .total-row { font-weight: 800; font-size: 11px; margin-top: 5px; border-top: 1px dashed #000; padding-top:5px; } .sub-row { font-size: 10px; margin-bottom: 2px; color: #333; } .debt-row { font-weight: 800; font-size: 11px; margin-top: 8px; border-top: 2px double #000; padding-top:5px; } .footer { text-align: center; margin-top: 15px; font-size: 8px; } .status-box { border: 1px solid #000; padding: 2px 4px; display: inline-block; margin-top: 5px; font-weight:bold; font-size: 10px; } </style></head><body>
+      <div class="header"><div class="title">PA IYAT BROILER</div><div class="address">Jl. Wr. Lobak, Gandasari, Kec. Katapang, Kab. Bandung 40921</div></div>
+      <div class="row"><span>Tgl: ${new Date(tx.date).toLocaleDateString('id-ID')}</span></div><div class="row"><span>Plg: ${tx.customer_name}</span></div><div class="row"><span>Jam: ${new Date(tx.created_at).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}</span></div>
       <hr style="border-top: 1px dashed #000; border-bottom:0; margin: 5px 0;">
-      
       ${itemsHtml}
-      
-      <div class="row total-row"><span>TOTAL NOTA</span><span>${formatCurrency(tx.total_price)}</span></div>
-      <div class="row"><span>BAYAR</span><span>${formatCurrency(tx.total_paid)}</span></div>
-      <div class="row"><span>SISA (Nota Ini)</span><span>${formatCurrency(sisaNotaIni)}</span></div>
-      
-      ${hutangLama > 0 ? `
-        <div style="margin-top: 8px; border-top: 1px dashed #000; padding-top: 5px;">
-          <div class="row sub-row"><span>Hutang Lama</span><span>${formatCurrency(hutangLama)}</span></div>
-          <div class="row debt-row">
-            <span>TOTAL TAGIHAN</span>
-            <span>${formatCurrency(totalTagihan)}</span>
-          </div>
-        </div>
-      ` : ''}
-      
-      <div class="header" style="border:none; margin-top:5px;">
-        <div class="status-box">${totalTagihan > 0 ? "BELUM LUNAS" : "LUNAS"}</div>
-      </div>
-      
-      <div class="footer"><p>Terima Kasih & Berkah Selalu!</p></div>
-      
-      <script>window.onload = function() { window.print(); }</script>
-      </body></html>`;
-    
+      <div class="row total-row"><span>TOTAL NOTA</span><span>${formatCurrency(tx.total_price)}</span></div><div class="row"><span>BAYAR</span><span>${formatCurrency(tx.total_paid)}</span></div><div class="row"><span>SISA (Nota Ini)</span><span>${formatCurrency(sisaNotaIni)}</span></div>
+      ${hutangLama > 0 ? `<div style="margin-top: 8px; border-top: 1px dashed #000; padding-top: 5px;"><div class="row sub-row"><span>Hutang Lama</span><span>${formatCurrency(hutangLama)}</span></div><div class="row debt-row"><span>TOTAL TAGIHAN</span><span>${formatCurrency(totalTagihan)}</span></div></div>` : ''}
+      <div class="header" style="border:none; margin-top:5px;"><div class="status-box">${totalTagihan > 0 ? "BELUM LUNAS" : "LUNAS"}</div></div><div class="footer"><p>Terima Kasih & Berkah Selalu!</p></div>
+      <script>window.onload = function() { window.print(); }</script></body></html>`;
     const printWindow = window.open('', '', 'width=350,height=600');
     if (printWindow) { printWindow.document.write(receiptContent); printWindow.document.close(); }
   };
 
+  // --- LOGIC DOWNLOAD JPG (CANVAS) ---
+  const handleDownloadImage = (tx: GroupedTransaction) => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Config Canvas
+    const width = 400; // Lebar standar (mirip struk)
+    const padding = 20;
+    const lineHeight = 25;
+    const font = "14px 'Courier New', monospace";
+    const boldFont = "bold 14px 'Courier New', monospace";
+    const headerFont = "bold 18px 'Courier New', monospace";
+    
+    // 1. Hitung Tinggi Canvas Otomatis
+    let height = 180; // Header & Info Dasar
+    height += tx.items.length * (lineHeight * 2.5); // Item List
+    height += 150; // Footer & Total
+    
+    // Hitung tambahan tinggi jika ada hutang lama
+    const sisaNotaIni = Math.max(0, tx.total_price - tx.total_paid);
+    const hutangLama = groupedTransactions
+      .filter(t => t.customer_name === tx.customer_name && t.id !== tx.id && new Date(t.created_at) < new Date(tx.created_at))
+      .reduce((sum, t) => sum + Math.max(0, t.total_price - t.total_paid), 0);
+    const totalTagihan = sisaNotaIni + hutangLama;
+
+    if (hutangLama > 0) height += 80;
+
+    // Set Ukuran Canvas
+    canvas.width = width;
+    canvas.height = height;
+    
+    // 2. Mulai Menggambar
+    ctx.fillStyle = "#ffffff"; // Background Putih
+    ctx.fillRect(0, 0, width, height);
+    
+    ctx.fillStyle = "#000000"; // Teks Hitam
+    ctx.textAlign = "center";
+    let y = 40;
+
+    // Header
+    ctx.font = headerFont;
+    ctx.fillText("PA IYAT BROILER", width / 2, y); y += 25;
+    ctx.font = "12px 'Courier New', monospace";
+    ctx.fillText("Jl. Wr. Lobak, Gandasari,", width / 2, y); y += 18;
+    ctx.fillText("Kec. Katapang, Kab. Bandung 40921", width / 2, y); y += 18;
+    
+    // Garis Putus
+    y += 10;
+    ctx.beginPath();
+    ctx.setLineDash([5, 5]);
+    ctx.moveTo(padding, y);
+    ctx.lineTo(width - padding, y);
+    ctx.stroke();
+    y += 25;
+
+    // Info Transaksi
+    ctx.textAlign = "left";
+    ctx.font = font;
+    ctx.fillText(`Tgl : ${new Date(tx.date).toLocaleDateString('id-ID')}`, padding, y); y += 20;
+    ctx.fillText(`Plg : ${tx.customer_name}`, padding, y); y += 20;
+    ctx.fillText(`Jam : ${new Date(tx.created_at).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}`, padding, y); y += 20;
+
+    // Garis
+    y += 10;
+    ctx.beginPath();
+    ctx.setLineDash([]);
+    ctx.moveTo(padding, y);
+    ctx.lineTo(width - padding, y);
+    ctx.stroke();
+    y += 25;
+
+    // List Barang
+    tx.items.forEach(item => {
+      const isPcs = item.unit_type === 'pcs' || (item.weight === 0 && item.quantity > 0);
+      let detailText = isPcs 
+        ? `${item.quantity} Pcs @${formatCurrency(item.price_per_kg)}`
+        : `${item.quantity > 0 ? item.quantity + ' ekor x ' : ''}${item.weight} Kg @${formatCurrency(item.price_per_kg)}`;
+
+      // Nama Barang & Harga Total
+      ctx.textAlign = "left";
+      ctx.font = boldFont;
+      ctx.fillText(item.product_type, padding, y);
+      ctx.textAlign = "right";
+      ctx.fillText(formatCurrency(item.total_price), width - padding, y);
+      y += 20;
+
+      // Detail Qty/Berat
+      ctx.textAlign = "left";
+      ctx.font = "12px 'Courier New', monospace";
+      ctx.fillStyle = "#555";
+      ctx.fillText(detailText, padding, y);
+      ctx.fillStyle = "#000";
+      y += 25;
+    });
+
+    // Garis Penutup Item
+    y += 10;
+    ctx.beginPath();
+    ctx.moveTo(padding, y);
+    ctx.lineTo(width - padding, y);
+    ctx.stroke();
+    y += 25;
+
+    // Total Nota
+    ctx.font = boldFont;
+    ctx.textAlign = "left";
+    ctx.fillText("TOTAL NOTA", padding, y);
+    ctx.textAlign = "right";
+    ctx.fillText(formatCurrency(tx.total_price), width - padding, y);
+    y += 25;
+
+    ctx.textAlign = "left";
+    ctx.fillText("BAYAR", padding, y);
+    ctx.textAlign = "right";
+    ctx.fillText(formatCurrency(tx.total_paid), width - padding, y);
+    y += 25;
+
+    ctx.textAlign = "left";
+    ctx.fillText("SISA (Nota Ini)", padding, y);
+    ctx.textAlign = "right";
+    ctx.fillText(formatCurrency(sisaNotaIni), width - padding, y);
+    y += 25;
+
+    // Hutang Lama (Jika Ada)
+    if (hutangLama > 0) {
+        y += 10;
+        ctx.beginPath();
+        ctx.setLineDash([5, 5]);
+        ctx.moveTo(padding, y);
+        ctx.lineTo(width - padding, y);
+        ctx.stroke();
+        y += 25;
+
+        ctx.textAlign = "left";
+        ctx.fillText("Hutang Lama", padding, y);
+        ctx.textAlign = "right";
+        ctx.fillText(formatCurrency(hutangLama), width - padding, y);
+        y += 25;
+
+        ctx.font = headerFont; // Font Lebih Besar
+        ctx.textAlign = "left";
+        ctx.fillText("TOTAL TAGIHAN", padding, y);
+        ctx.textAlign = "right";
+        ctx.fillText(formatCurrency(totalTagihan), width - padding, y);
+        y += 25;
+    }
+
+    // Kotak Status LUNAS/BELUM
+    y += 20;
+    ctx.setLineDash([]);
+    ctx.strokeRect(width/2 - 60, y, 120, 30);
+    ctx.font = boldFont;
+    ctx.textAlign = "center";
+    ctx.fillText(totalTagihan > 0 ? "BELUM LUNAS" : "LUNAS", width/2, y + 20);
+    y += 50;
+
+    // Footer
+    ctx.font = "12px 'Courier New', monospace";
+    ctx.fillText("Terima Kasih & Berkah Selalu!", width/2, y);
+
+    // 3. Download Gambar
+    const link = document.createElement('a');
+    link.download = `Struk-${tx.customer_name.replace(/\s+/g, '-')}-${new Date().getTime()}.jpg`;
+    link.href = canvas.toDataURL("image/jpeg", 0.9);
+    link.click();
+  };
+
   const formatCurrency = (val: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(val);
   
-  // --- HITUNG SUMMARY (LOGIKA BARU YANG LEBIH PINTAR) ---
+  // --- HITUNG SUMMARY ---
   let calculatedTotalEkor = 0;
   let calculatedTotalAti = 0;
-
-  // Keyword yang DIANGGAP BUKAN AYAM UTUH (Parting/Jeroan)
   const partingKeywords = ['kepala', 'ceker', 'sayap', 'paha', 'dada', 'ati', 'ampela', 'usus', 'kulit', 'jantung', 'bon', 'tulangan'];
 
   filteredTransactions.forEach(tx => {
     tx.items.forEach(item => {
       const pName = item.product_type.toLowerCase();
-      
-      // 1. Cek apakah ini Ati?
-      if (pName.includes('ati')) {
-         calculatedTotalAti += (item.quantity || 0);
-      }
-
-      // 2. Cek apakah ini Ayam Utuh?
-      // Syarat: TIDAK mengandung kata-kata parting/jeroan
+      if (pName.includes('ati')) calculatedTotalAti += (item.quantity || 0);
       const isParting = partingKeywords.some(keyword => pName.includes(keyword));
-      
-      if (!isParting) {
-        // Aman, ini dianggap Ayam Utuh (GB 1, GB 2, TU Besar, dll)
-        calculatedTotalEkor += (item.quantity || 0);
-      }
+      if (!isParting) calculatedTotalEkor += (item.quantity || 0);
     });
   });
 
@@ -254,46 +350,13 @@ const LaporanPenjualan = () => {
           <Button onClick={exportToExcel} className="bg-green-600 hover:bg-green-700"><Download className="h-4 w-4 mr-2"/> Excel</Button>
         </div>
 
-        {/* SUMMARY CARDS (5 Kolom) */}
+        {/* SUMMARY CARDS */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-          <Card className="bg-blue-50 border-blue-200">
-            <CardHeader className="pb-2"><CardTitle className="text-sm text-blue-700">Total Transaksi</CardTitle></CardHeader>
-            <CardContent><div className="text-2xl font-bold text-blue-900">{filteredTransactions.length}</div></CardContent>
-          </Card>
-          
-          {/* Card Total Ekor (KHUSUS AYAM UTUH/KILOAN) */}
-          <Card className="bg-purple-50 border-purple-200">
-            <CardHeader className="pb-2"><CardTitle className="text-sm text-purple-700">Total Ekor</CardTitle></CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-purple-900">{calculatedTotalEkor}</div>
-              <p className="text-[10px] text-purple-600 mt-1">Ayam Utuh / Hidup</p>
-            </CardContent>
-          </Card>
-
-          {/* Card Total Ati (KHUSUS PRODUK BERNAMA 'ATI') */}
-          <Card className="bg-indigo-50 border-indigo-200">
-            <CardHeader className="pb-2 flex items-center gap-2">
-              <CardTitle className="text-sm text-indigo-700">Total Ati</CardTitle>
-              <Package className="h-4 w-4 text-indigo-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-indigo-900">{calculatedTotalAti}</div>
-              <p className="text-[10px] text-indigo-600 mt-1">Pcs (Khusus Ati)</p>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-orange-50 border-orange-200">
-            <CardHeader className="pb-2"><CardTitle className="text-sm text-orange-700">Pendapatan Kotor</CardTitle></CardHeader>
-            <CardContent><div className="text-lg font-bold text-orange-900">{formatCurrency(grandTotalRevenue)}</div></CardContent>
-          </Card>
-          
-          <Card className="bg-red-50 border-red-200 shadow-sm">
-            <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0"><CardTitle className="text-sm font-bold text-red-700">Piutang</CardTitle><AlertCircle className="h-4 w-4 text-red-600"/></CardHeader>
-            <CardContent>
-              <div className="text-lg font-bold text-red-800">{formatCurrency(totalHutang)}</div>
-              <p className="text-[10px] text-red-600 mt-1">Belum Dibayar</p>
-            </CardContent>
-          </Card>
+          <Card className="bg-blue-50 border-blue-200"><CardHeader className="pb-2"><CardTitle className="text-sm text-blue-700">Total Transaksi</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-blue-900">{filteredTransactions.length}</div></CardContent></Card>
+          <Card className="bg-purple-50 border-purple-200"><CardHeader className="pb-2"><CardTitle className="text-sm text-purple-700">Total Ekor</CardTitle></CardHeader><CardContent><div className="text-2xl font-bold text-purple-900">{calculatedTotalEkor}</div><p className="text-[10px] text-purple-600 mt-1">Ayam Utuh / Hidup</p></CardContent></Card>
+          <Card className="bg-indigo-50 border-indigo-200"><CardHeader className="pb-2 flex items-center gap-2"><CardTitle className="text-sm text-indigo-700">Total Ati</CardTitle><Package className="h-4 w-4 text-indigo-500" /></CardHeader><CardContent><div className="text-2xl font-bold text-indigo-900">{calculatedTotalAti}</div><p className="text-[10px] text-indigo-600 mt-1">Pcs (Khusus Ati)</p></CardContent></Card>
+          <Card className="bg-orange-50 border-orange-200"><CardHeader className="pb-2"><CardTitle className="text-sm text-orange-700">Pendapatan Kotor</CardTitle></CardHeader><CardContent><div className="text-lg font-bold text-orange-900">{formatCurrency(grandTotalRevenue)}</div></CardContent></Card>
+          <Card className="bg-red-50 border-red-200 shadow-sm"><CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0"><CardTitle className="text-sm font-bold text-red-700">Piutang</CardTitle><AlertCircle className="h-4 w-4 text-red-600"/></CardHeader><CardContent><div className="text-lg font-bold text-red-800">{formatCurrency(totalHutang)}</div><p className="text-[10px] text-red-600 mt-1">Belum Dibayar</p></CardContent></Card>
         </div>
 
         {/* --- FILTER --- */}
@@ -316,20 +379,18 @@ const LaporanPenjualan = () => {
                 <TableCell className="font-bold">{tx.customer_name}</TableCell>
                 <TableCell><div className="space-y-1">{tx.items.map((item, idx) => {
                   const isPcs = item.unit_type === 'pcs' || (item.weight === 0 && item.quantity > 0);
-                  return (
-                    <div key={idx} className="text-xs text-gray-600">
-                      <span className="font-semibold text-gray-900">{item.product_type}</span>: 
-                      {isPcs ? ` ${item.quantity} Pcs` : ` ${item.weight} Kg (${item.quantity} Ekor)`}
-                    </div>
-                  );
+                  return (<div key={idx} className="text-xs text-gray-600"><span className="font-semibold text-gray-900">{item.product_type}</span>: {isPcs ? ` ${item.quantity} Pcs` : ` ${item.weight} Kg (${item.quantity} Ekor)`}</div>);
                 })}</div></TableCell>
                 <TableCell className="text-right font-bold">{formatCurrency(tx.total_price)}</TableCell>
                 <TableCell className={`text-right ${sisa <= 0 ? 'text-green-600 font-bold' : 'text-red-600 font-medium'}`}>{formatCurrency(tx.total_paid)}{sisa > 0 && <div className="text-[10px] text-red-500">Kurang: {formatCurrency(sisa)}</div>}</TableCell>
                 <TableCell className="text-center"><Badge variant="outline" className={tx.payment_status === 'Lunas' ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}>{tx.payment_status}</Badge></TableCell>
-                <TableCell className="text-center"><div className="flex justify-center gap-2">
-                  <Button size="sm" variant="ghost" onClick={() => handlePrint(tx)}><Printer className="h-4 w-4 text-gray-500" /></Button>
-                  <Button size="sm" variant="outline" onClick={() => {setSelectedTx(tx); setInputPayment(tx.total_paid.toString()); setIsDialogOpen(true)}}><Wallet className="h-4 w-4 mr-1" /> Bayar</Button>
-                </div></TableCell>
+                <TableCell className="text-center">
+                  <div className="flex justify-center gap-1">
+                    <Button size="icon" variant="ghost" className="h-8 w-8 text-blue-600 hover:bg-blue-50" onClick={() => handleDownloadImage(tx)}><ImageIcon className="h-4 w-4" /></Button>
+                    <Button size="icon" variant="ghost" className="h-8 w-8 text-gray-500" onClick={() => handlePrint(tx)}><Printer className="h-4 w-4" /></Button>
+                    <Button size="icon" variant="outline" className="h-8 w-8 border-green-200 text-green-600 hover:bg-green-50" onClick={() => {setSelectedTx(tx); setInputPayment(tx.total_paid.toString()); setIsDialogOpen(true)}}><Wallet className="h-4 w-4" /></Button>
+                  </div>
+                </TableCell>
               </TableRow>
             )
           })}</TableBody></Table></CardContent></Card>
