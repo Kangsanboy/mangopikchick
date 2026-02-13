@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Users, CalendarCheck, Banknote, Save, Loader2, Check, X, Minus, ChevronLeft, ChevronRight, Edit, Trash2, Wallet, ArrowRight, Printer, FileText } from "lucide-react";
+import { Users, CalendarCheck, Banknote, Save, Loader2, Check, X, Minus, ChevronLeft, ChevronRight, Edit, Trash2, Wallet, ArrowRight, Printer, FileText, PlusCircle } from "lucide-react";
 
 interface Employee {
   id: string;
@@ -34,6 +34,13 @@ interface ExpenseData {
   employee_id: string;
 }
 
+// Interface baru untuk item potongan
+interface DeductionItem {
+  id: number;
+  description: string;
+  amount: number;
+}
+
 const Karyawan = () => {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
@@ -41,10 +48,10 @@ const Karyawan = () => {
   // --- STATES ---
   const [employees, setEmployees] = useState<Employee[]>([]);
   
-  // State Tanggal Absen (Input Harian)
+  // State Tanggal Absen
   const [absenDate, setAbsenDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }));
   
-  // State Tanggal Gaji (Monitor Mingguan)
+  // State Tanggal Gaji
   const [salaryStartDate, setSalaryStartDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }));
   const [salaryEndDate, setSalaryEndDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }));
 
@@ -53,14 +60,19 @@ const Karyawan = () => {
   // Data
   const [inputAttendance, setInputAttendance] = useState<{ [key: string]: { status: string, overtime: string } }>({});
   const [weeklyLogs, setWeeklyLogs] = useState<AttendanceLog[]>([]);
-  const [salaryLogs, setSalaryLogs] = useState<AttendanceLog[]>([]); // Log untuk Monitor Gaji
+  const [salaryLogs, setSalaryLogs] = useState<AttendanceLog[]>([]); 
 
-  // --- STATES SLIP GAJI (BARU) ---
+  // --- STATES SLIP GAJI ---
   const [slipStartDate, setSlipStartDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }));
   const [slipEndDate, setSlipEndDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }));
   const [selectedSlipEmployee, setSelectedSlipEmployee] = useState<string>("");
-  const [slipDeduction, setSlipDeduction] = useState<string>("0");
-  const [slipData, setSlipData] = useState<{ pokok: number, lembur: number, logs: AttendanceLog[] }>({ pokok: 0, lembur: 0, logs: [] });
+  
+  // STATE PENGURANGAN BARU (LIST)
+  const [deductionList, setDeductionList] = useState<DeductionItem[]>([]);
+  const [newDedDesc, setNewDedDesc] = useState("");
+  const [newDedAmount, setNewDedAmount] = useState("");
+
+  const [slipData, setSlipData] = useState<{ pokok: number, lembur: number }>({ pokok: 0, lembur: 0 });
 
   // State Dialog Edit
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -77,7 +89,7 @@ const Karyawan = () => {
     setCurrentWeekStart(monday);
   }, []);
 
-  // Sync Salary Date with Absen Date (Auto set mingguan)
+  // Sync Salary Date
   useEffect(() => {
     const d = new Date(absenDate);
     const day = d.getDay();
@@ -103,10 +115,10 @@ const Karyawan = () => {
     if (employees.length > 0) loadSalaryLogs();
   }, [salaryStartDate, salaryEndDate, employees]);
 
-  // Efek Perubahan Slip Gaji (Hitung Otomatis saat Karyawan/Tanggal Berubah)
   useEffect(() => {
     if (selectedSlipEmployee && slipStartDate && slipEndDate) {
       calculateSlipSalary();
+      setDeductionList([]); // Reset potongan saat ganti orang/tanggal
     }
   }, [selectedSlipEmployee, slipStartDate, slipEndDate]);
 
@@ -148,9 +160,8 @@ const Karyawan = () => {
     setSalaryLogs(data || []);
   };
 
-  // --- 2. LOGIC HITUNG SLIP GAJI ---
+  // --- 2. LOGIC HITUNG SLIP GAJI (Pokok & Lembur) ---
   const calculateSlipSalary = async () => {
-    // Ambil log spesifik untuk slip
     const { data } = await supabase.from('attendance_logs')
       .select('*')
       .eq('employee_id', selectedSlipEmployee)
@@ -170,16 +181,46 @@ const Karyawan = () => {
       if (log.overtime_type === 'HALF') totalLembur += (emp.overtime_rate / 2);
     });
 
-    setSlipData({ pokok: totalPokok, lembur: totalLembur, logs: logs });
+    setSlipData({ pokok: totalPokok, lembur: totalLembur });
   };
 
-  // --- 3. PRINT SLIP ---
+  // --- LOGIC TAMBAH/HAPUS PENGURANGAN ---
+  const addDeduction = () => {
+    if (!newDedDesc || !newDedAmount) return;
+    const amount = parseInt(newDedAmount);
+    if (isNaN(amount) || amount <= 0) return;
+
+    const newItem: DeductionItem = {
+      id: Date.now(),
+      description: newDedDesc,
+      amount: amount
+    };
+
+    setDeductionList([...deductionList, newItem]);
+    setNewDedDesc("");
+    setNewDedAmount("");
+  };
+
+  const removeDeduction = (id: number) => {
+    setDeductionList(deductionList.filter(item => item.id !== id));
+  };
+
+  // --- 3. PRINT SLIP (DENGAN RINCIAN PENGURANGAN) ---
   const handlePrintSlip = () => {
     const emp = employees.find(e => e.id === selectedSlipEmployee);
     if (!emp) return;
 
-    const totalTerima = slipData.pokok + slipData.lembur - (parseInt(slipDeduction) || 0);
+    const totalPengurangan = deductionList.reduce((sum, item) => sum + item.amount, 0);
+    const totalTerima = slipData.pokok + slipData.lembur - totalPengurangan;
     const dateNow = new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+
+    // Generate HTML untuk list pengurangan
+    const deductionRows = deductionList.map(d => `
+      <div class="row" style="padding-left: 10px; font-size: 10px; color: #444;">
+        <span>- ${d.description}</span> 
+        <span>${formatRp(d.amount)}</span>
+      </div>
+    `).join('');
 
     const slipContent = `
       <html>
@@ -217,7 +258,15 @@ const Karyawan = () => {
           <div class="section" style="margin-top: 10px;">
             <div class="row"><span>Gaji Pokok</span> <span>${formatRp(slipData.pokok)}</span></div>
             <div class="row"><span>Gaji Lembur</span> <span>${formatRp(slipData.lembur)}</span></div>
-            <div class="row"><span>Pengurangan</span> <span>- ${formatRp(parseInt(slipDeduction) || 0)}</span></div>
+            
+            ${deductionList.length > 0 ? `
+              <div class="row" style="margin-top: 5px; font-weight:bold;"><span>Rincian Pengurangan:</span></div>
+              ${deductionRows}
+              <div class="row" style="border-top: 1px dotted #ccc; margin-top: 2px; padding-top:2px;">
+                <span>Total Pengurangan</span> 
+                <span>- ${formatRp(totalPengurangan)}</span>
+              </div>
+            ` : ''}
           </div>
 
           <div class="row total-row">
@@ -228,7 +277,7 @@ const Karyawan = () => {
           <div class="footer">
             <div>${dateNow}</div>
             <div style="margin-top: 40px; text-align: center; float: right;">
-              <div class="ttd">.............</div>
+              <div class="ttd">........</div>
             </div>
           </div>
           
@@ -300,6 +349,8 @@ const Karyawan = () => {
   };
 
   const formatRp = (n: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(n);
+
+  const totalDeduction = deductionList.reduce((sum, d) => sum + d.amount, 0);
 
   return (
     <Layout>
@@ -410,44 +461,90 @@ const Karyawan = () => {
 
         </div>
 
-        {/* --- FITUR BARU: GENERATOR SLIP GAJI --- */}
+        {/* --- FITUR BARU: GENERATOR SLIP GAJI DENGAN LIST PENGURANGAN --- */}
         <Card className="border-t-4 border-t-purple-600 shadow-lg bg-gradient-to-br from-white to-purple-50">
           <CardHeader className="pb-2 border-b">
             <CardTitle className="flex items-center gap-2 text-purple-800"><FileText className="h-6 w-6"/> Pembuatan Slip Gaji</CardTitle>
           </CardHeader>
           <CardContent className="pt-6">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-start">
               
-              <div className="space-y-2">
-                <Label className="text-purple-700 font-semibold">1. Pilih Periode Gaji</Label>
-                <div className="flex gap-2">
-                  <Input type="date" value={slipStartDate} onChange={e => setSlipStartDate(e.target.value)} />
-                  <Input type="date" value={slipEndDate} onChange={e => setSlipEndDate(e.target.value)} />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label className="text-purple-700 font-semibold">2. Pilih Karyawan</Label>
-                <Select value={selectedSlipEmployee} onValueChange={setSelectedSlipEmployee}>
-                  <SelectTrigger className="bg-white"><SelectValue placeholder="-- Pilih Nama --" /></SelectTrigger>
-                  <SelectContent>{employees.map(e => <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-
-              {selectedSlipEmployee && (
-                <div className="md:col-span-2 grid grid-cols-2 gap-4 animate-in fade-in slide-in-from-left-4">
-                  <div className="bg-white p-3 rounded border border-purple-100 shadow-sm">
-                    <p className="text-xs text-gray-500 uppercase font-bold">Total Pendapatan (Otomatis)</p>
-                    <p className="text-lg font-bold text-green-600">{formatRp(slipData.pokok + slipData.lembur)}</p>
-                    <div className="text-[10px] text-gray-400 mt-1">Pokok: {formatRp(slipData.pokok)} | Lembur: {formatRp(slipData.lembur)}</div>
+              {/* Kolom 1 & 2: Pilih Periode & Karyawan */}
+              <div className="md:col-span-2 space-y-4">
+                <div className="space-y-2">
+                  <Label className="text-purple-700 font-semibold">1. Pilih Periode Gaji</Label>
+                  <div className="flex gap-2">
+                    <Input type="date" value={slipStartDate} onChange={e => setSlipStartDate(e.target.value)} />
+                    <Input type="date" value={slipEndDate} onChange={e => setSlipEndDate(e.target.value)} />
                   </div>
-                  
-                  <div className="space-y-1">
-                    <Label className="text-red-600 font-semibold">3. Pengurangan (Kasbon)</Label>
-                    <div className="flex gap-2">
-                      <Input type="number" value={slipDeduction} onChange={e => setSlipDeduction(e.target.value)} className="border-red-200 focus:ring-red-200" placeholder="0"/>
-                      <Button onClick={handlePrintSlip} className="bg-purple-700 hover:bg-purple-800"><Printer className="mr-2 h-4 w-4"/> Cetak</Button>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-purple-700 font-semibold">2. Pilih Karyawan</Label>
+                  <Select value={selectedSlipEmployee} onValueChange={setSelectedSlipEmployee}>
+                    <SelectTrigger className="bg-white"><SelectValue placeholder="-- Pilih Nama --" /></SelectTrigger>
+                    <SelectContent>{employees.map(e => <SelectItem key={e.id} value={e.id}>{e.name}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+
+                {selectedSlipEmployee && (
+                  <div className="bg-white p-3 rounded border border-purple-100 shadow-sm mt-4">
+                    <p className="text-xs text-gray-500 uppercase font-bold">Total Pendapatan (Otomatis)</p>
+                    <p className="text-xl font-bold text-green-600">{formatRp(slipData.pokok + slipData.lembur)}</p>
+                    <div className="text-xs text-gray-400 mt-1 grid grid-cols-2">
+                      <span>Pokok: {formatRp(slipData.pokok)}</span>
+                      <span>Lembur: {formatRp(slipData.lembur)}</span>
                     </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Kolom 3 & 4: Pengurangan & Cetak */}
+              {selectedSlipEmployee && (
+                <div className="md:col-span-2 space-y-4 animate-in fade-in slide-in-from-right-4 border-l pl-6 border-purple-100">
+                  <div className="space-y-2">
+                    <Label className="text-red-600 font-semibold">3. Input Pengurangan (Kasbon/Lainnya)</Label>
+                    <div className="flex gap-2 items-end">
+                      <div className="flex-1">
+                        <Label className="text-xs text-gray-500">Keterangan</Label>
+                        <Input placeholder="Contoh: Kasbon" value={newDedDesc} onChange={e => setNewDedDesc(e.target.value)} className="h-8"/>
+                      </div>
+                      <div className="w-32">
+                        <Label className="text-xs text-gray-500">Jumlah (Rp)</Label>
+                        <Input type="number" placeholder="0" value={newDedAmount} onChange={e => setNewDedAmount(e.target.value)} className="h-8"/>
+                      </div>
+                      <Button size="sm" onClick={addDeduction} className="bg-red-50 text-red-600 hover:bg-red-100 border border-red-200 h-8"><PlusCircle className="h-4 w-4"/></Button>
+                    </div>
+
+                    {/* LIST PENGURANGAN */}
+                    {deductionList.length > 0 && (
+                      <div className="bg-red-50/50 rounded border border-red-100 p-2 mt-2">
+                        <table className="w-full text-xs">
+                          <tbody>
+                            {deductionList.map(item => (
+                              <tr key={item.id} className="border-b border-dashed border-red-200 last:border-0">
+                                <td className="py-1 text-gray-600">{item.description}</td>
+                                <td className="py-1 text-right font-medium text-red-600">{formatRp(item.amount)}</td>
+                                <td className="py-1 text-right w-6"><button onClick={() => removeDeduction(item.id)}><Trash2 className="h-3 w-3 text-red-400 hover:text-red-600"/></button></td>
+                              </tr>
+                            ))}
+                            <tr className="font-bold">
+                              <td className="pt-2 text-red-800">Total Potongan</td>
+                              <td className="pt-2 text-right text-red-800">{formatRp(totalDeduction)}</td>
+                              <td></td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="pt-4 border-t border-purple-100 flex justify-between items-center">
+                    <div>
+                      <p className="text-xs text-gray-500">Total Gaji Bersih</p>
+                      <p className="text-2xl font-bold text-purple-700">{formatRp(slipData.pokok + slipData.lembur - totalDeduction)}</p>
+                    </div>
+                    <Button size="lg" onClick={handlePrintSlip} className="bg-purple-700 hover:bg-purple-800 shadow-lg"><Printer className="mr-2 h-5 w-5"/> Cetak Slip</Button>
                   </div>
                 </div>
               )}
