@@ -297,7 +297,7 @@ const Karyawan = () => {
           
           <div class="header">
            <div class="logo-container">
-                <img src="logo ayam.png" alt="Logo Ayam" style="width: 80px; height: auto; margin-bottom: 10px;">
+                <img src="logo ayam.png" alt="Logo Ayam" style="width: 100px; height: auto; margin-bottom: 10px;">
                 <div class="company-name">PA IYAT BROILER</div>
               <div class="address">Jl. Wr. Lobak, Gandasari, Kec. Katapang,<br>Kab.Bandung 40921</div>
             </div>
