@@ -291,10 +291,17 @@ const Karyawan = () => {
             .final-box { border: 1px solid #000; padding: 10px; width: 300px; text-align: center; }
             .final-label { font-size: 13px; margin-bottom: 5px; }
             .final-amount { font-size: 34px; font-weight: bold; margin: 10px 0;}
+          /* Tambahan: Sembunyikan tombol saat di-print ke kertas */
+            @media print { .area-tombol { display: none !important; } }
           </style>
+          <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
         </head>
         <body>
           
+          <div class="area-tombol" data-html2canvas-ignore="true" style="text-align: center; margin-bottom: 20px;">
+            <button onclick="window.print()" style="padding: 8px 15px; cursor: pointer; border: 1px solid #333; background: #fff;">🖨️ Cetak Kertas / PDF</button>
+            <button onclick="downloadJPG()" style="padding: 8px 15px; cursor: pointer; border: none; background: #9333ea; color: white; font-weight: bold; margin-left: 10px;">⬇️ Download JPG</button>
+          </div>
           <div class="header">
            <div class="logo-container">
                 <img src="logo ayam.png" alt="Logo Ayam" style="width: 180px; height: auto; margin-bottom: 10px;">
@@ -359,7 +366,19 @@ const Karyawan = () => {
             </div>
           </div>
           
-          <script>window.onload = function() { setTimeout(function(){ window.print(); }, 300); }</script>
+          <script>
+            // Fungsi untuk download JPG
+            function downloadJPG() {
+              // Kita "foto" seluruh isi body (termasuk border garis ganda yang abang bikin tadi)
+              html2canvas(document.body, { scale: 2 }).then(function(canvas) {
+                var link = document.createElement('a');
+                // Nama filenya otomatis ngikutin nama karyawan
+                link.download = 'Slip_Gaji_${emp.name}.jpg';
+                link.href = canvas.toDataURL('image/jpeg', 0.9);
+                link.click();
+              });
+            }
+          </script>
         </body>
       </html>
     `;
