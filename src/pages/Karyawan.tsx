@@ -248,7 +248,7 @@ const Karyawan = () => {
           <title>Slip Gaji - ${emp.name}</title>
           <style>
             @page { size: A4; margin: 15mm; }
-            body { font-family: 'Segoe UI', Arial, sans-serif; color: #000; padding: 20px; font-size: 13px; max-width: 800px; margin: 0 auto;}
+            body { font-family: 'Segoe UI', Arial, sans-serif; color: #000; padding: 20px; font-size: 13px; max-width: 800px; margin: 0 auto; border: 3px double #000;}
             
             /* Header */
             .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; }
@@ -296,9 +296,9 @@ const Karyawan = () => {
         <body>
           
           <div class="header">
-            <div class="logo-container">
-              <div class="logo-box">LOGO</div>
-              <div class="company-name">PA IYAT BROILER</div>
+           <div class="logo-container">
+                <img src="https://cdn-icons-png.flaticon.com/512/1864/1864472.png" alt="Logo Ayam" style="width: 80px; height: auto; margin-bottom: 10px;">
+                <div class="company-name">PA IYAT BROILER</div>
               <div class="address">Jl. Wr. Lobak, Gandasari, Kec. Katapang,<br>Kab.Bandung 40921</div>
             </div>
             <div class="title-container">
