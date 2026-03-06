@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { SaleData, TABLE_NAMES } from "@/types/database";
-import { Download, Printer, Wallet, AlertCircle, Loader2, Filter, Package, Image as ImageIcon } from "lucide-react";
+import { Download, Printer, Wallet, AlertCircle, Loader2, Package, Image as ImageIcon } from "lucide-react";
 
 interface ExtendedSaleData extends SaleData {
   payment_status?: string;
@@ -110,7 +110,9 @@ const LaporanPenjualan = () => {
     finally { setUpdateLoading(false); }
   };
 
-  // --- LOGIC PRINT (HTML) ---
+  const formatCurrency = (val: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(val);
+
+  // --- LOGIC PRINT HTML A4 FORMAL ---
   const handlePrint = (tx: GroupedTransaction) => {
     const sisaNotaIni = Math.max(0, tx.total_price - tx.total_paid);
     const hutangLama = groupedTransactions
@@ -118,198 +120,254 @@ const LaporanPenjualan = () => {
       .reduce((sum, t) => sum + Math.max(0, t.total_price - t.total_paid), 0);
     const totalTagihan = sisaNotaIni + hutangLama;
 
-    const itemsHtml = tx.items.map(item => {
+    // Mapping item untuk tabel baru
+    const itemsHtml = tx.items.map((item, index) => {
       const isPcs = item.unit_type === 'pcs' || (item.weight === 0 && item.quantity > 0);
-      let detailText = isPcs ? `${item.quantity} Pcs @${formatCurrency(item.price_per_kg)}` : `${item.quantity > 0 ? item.quantity + ' ekor x ' : ''}${item.weight} Kg @${formatCurrency(item.price_per_kg)}`;
+      const qtyText = isPcs ? `${item.quantity} Pcs` : (item.quantity > 0 ? `${item.quantity} Ekor` : '-');
+      const weightText = !isPcs && item.weight > 0 ? `${item.weight} Kg` : '-';
+      
       return `
-      <div style="margin-bottom: 4px; border-bottom: 1px dotted #ccc; padding-bottom: 2px;">
-        <div style="display:flex; justify-content:space-between; font-weight:bold; font-size: 10px;"><span>${item.product_type}</span><span>${formatCurrency(item.total_price)}</span></div>
-        <div style="font-size:9px; color:#333;">${detailText}</div>
-      </div>`;
+        <tr>
+          <td style="text-align:center;">${index + 1}</td>
+          <td>${item.product_type}</td>
+          <td>${qtyText}</td>
+          <td>${weightText}</td>
+          <td>${formatCurrency(item.price_per_kg)}</td>
+          <td style="text-align:right;">${formatCurrency(item.total_price)}</td>
+        </tr>
+      `;
     }).join('');
 
-    const receiptContent = `<html><head><title>Struk</title><style>@page { size: 58mm auto; margin: 0; } body { font-family: 'Courier New', monospace; font-size: 10px; width: 58mm; margin: 0; padding: 5px; color: #000; background: #fff;} .header { text-align: center; margin-bottom: 8px; border-bottom: 1px dashed #000; padding-bottom:5px;} .title { font-size: 12px; font-weight: 800; margin-bottom: 2px; } .address { font-size: 8px; word-wrap: break-word; line-height: 1.2; } .row { display: flex; justify-content: space-between; margin-bottom: 2px; } .total-row { font-weight: 800; font-size: 11px; margin-top: 5px; border-top: 1px dashed #000; padding-top:5px; } .sub-row { font-size: 10px; margin-bottom: 2px; color: #333; } .debt-row { font-weight: 800; font-size: 11px; margin-top: 8px; border-top: 2px double #000; padding-top:5px; } .footer { text-align: center; margin-top: 15px; font-size: 8px; } .status-box { border: 1px solid #000; padding: 2px 4px; display: inline-block; margin-top: 5px; font-weight:bold; font-size: 10px; } </style></head><body>
-      <div class="header"><div class="title">PA IYAT BROILER</div><div class="address">Jl. Wr. Lobak, Gandasari, Kec. Katapang, Kab. Bandung 40921</div></div>
-      <div class="row"><span>Tgl: ${new Date(tx.date).toLocaleDateString('id-ID')}</span></div><div class="row"><span>Plg: ${tx.customer_name}</span></div><div class="row"><span>Jam: ${new Date(tx.created_at).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}</span></div>
-      <hr style="border-top: 1px dashed #000; border-bottom:0; margin: 5px 0;">
-      ${itemsHtml}
-      <div class="row total-row"><span>TOTAL NOTA</span><span>${formatCurrency(tx.total_price)}</span></div><div class="row"><span>BAYAR</span><span>${formatCurrency(tx.total_paid)}</span></div><div class="row"><span>SISA (Nota Ini)</span><span>${formatCurrency(sisaNotaIni)}</span></div>
-      ${hutangLama > 0 ? `<div style="margin-top: 8px; border-top: 1px dashed #000; padding-top: 5px;"><div class="row sub-row"><span>Hutang Lama</span><span>${formatCurrency(hutangLama)}</span></div><div class="row debt-row"><span>TOTAL TAGIHAN</span><span>${formatCurrency(totalTagihan)}</span></div></div>` : ''}
-      <div class="header" style="border:none; margin-top:5px;"><div class="status-box">${totalTagihan > 0 ? "BELUM LUNAS" : "LUNAS"}</div></div><div class="footer"><p>Terima Kasih & Berkah Selalu!</p></div>
-      <script>window.onload = function() { window.print(); }</script></body></html>`;
-    const printWindow = window.open('', '', 'width=350,height=600');
-    if (printWindow) { printWindow.document.write(receiptContent); printWindow.document.close(); }
+    const receiptContent = `
+      <html>
+      <head>
+        <title>Nota Penjualan - ${tx.customer_name}</title>
+        <style>
+          @page { size: A4; margin: 15mm; }
+          body { font-family: Arial, sans-serif; color: #000; margin: 0; padding: 20px; font-size: 14px; }
+          .header { display: flex; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #000; padding-bottom: 15px; }
+          .logo { width: 80px; height: 80px; object-fit: contain; margin-right: 20px; }
+          .company-info h1 { margin: 0 0 5px 0; font-size: 26px; font-weight: bold; text-transform: uppercase; }
+          .company-info p { margin: 0; font-size: 14px; color: #333; }
+          .info-table { margin-bottom: 20px; }
+          .info-table td { padding: 4px 8px 4px 0; font-weight: bold; font-size: 14px; }
+          .data-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+          .data-table th, .data-table td { border: 1px solid #000; padding: 10px 8px; text-align: left; font-size: 14px; }
+          .data-table th { background-color: #f5f5f5; font-weight: bold; text-align: center; }
+          .summary-container { display: flex; justify-content: flex-end; width: 100%; margin-bottom: 30px; }
+          .summary { width: 350px; }
+          .summary-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-weight: bold; font-size: 14px;}
+          .signatures { display: flex; justify-content: space-between; text-align: center; margin-top: 50px; padding: 0 50px;}
+          .sign-box { width: 200px; font-size: 14px; }
+          .sign-line { margin-top: 80px; font-weight: bold; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <img src="/logo ayam.png" class="logo" alt="Logo" />
+          <div class="company-info">
+            <h1>PA IYAT BROILER</h1>
+            <p>Jl. Wr. Lobak, Gandasari, Kec. Katapang, Kab. Bandung 40921</p>
+          </div>
+        </div>
+
+        <table class="info-table">
+          <tr><td>Tanggal</td><td>: ${new Date(tx.date).toLocaleDateString('id-ID', {day: '2-digit', month: 'long', year: 'numeric'})}</td></tr>
+          <tr><td>Pelanggan</td><td>: ${tx.customer_name}</td></tr>
+        </table>
+
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width: 5%;">No</th>
+              <th style="width: 25%;">Nama barang</th>
+              <th style="width: 15%;">Jumlah</th>
+              <th style="width: 15%;">Berat</th>
+              <th style="width: 20%;">Harga per kg/pcs</th>
+              <th style="width: 20%; text-align:right;">Jumlah</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemsHtml}
+          </tbody>
+        </table>
+
+        <div class="summary-container">
+          <div class="summary">
+            <div class="summary-row"><span>Total Nota</span><span>${formatCurrency(tx.total_price)}</span></div>
+            <div class="summary-row"><span>Bayar</span><span>${formatCurrency(tx.total_paid)}</span></div>
+            <div class="summary-row"><span>Sisa Nota ini</span><span>${formatCurrency(sisaNotaIni)}</span></div>
+            ${hutangLama > 0 ? `
+              <div class="summary-row" style="margin-top: 10px; border-top: 1px dashed #ccc; padding-top: 10px;"><span>Hutang Lama</span><span>${formatCurrency(hutangLama)}</span></div>
+              <div class="summary-row" style="font-size: 16px; margin-top: 5px;"><span>Total Tagihan</span><span>${formatCurrency(totalTagihan)}</span></div>
+            ` : ''}
+          </div>
+        </div>
+
+        <div class="signatures">
+          <div class="sign-box">
+            <div>Yang menerima</div>
+            <div class="sign-line">(............................)</div>
+          </div>
+          <div class="sign-box">
+            <div>Hormat kami</div>
+            <div class="sign-line">(............................)</div>
+          </div>
+        </div>
+
+        <script>
+          window.onload = function() { 
+            setTimeout(function(){ window.print(); }, 800); 
+          }
+        </script>
+      </body>
+      </html>
+    `;
+    const printWindow = window.open('', '', 'width=900,height=700');
+    if (printWindow) { 
+      printWindow.document.write(receiptContent); 
+      printWindow.document.close(); 
+    } else {
+      toast({title: "Gagal Membuka Tab Baru", description: "Izinkan pop-up browser untuk mencetak.", variant: "destructive"});
+    }
   };
 
-  // --- LOGIC DOWNLOAD JPG (CANVAS) ---
+  // --- LOGIC DOWNLOAD JPG CANVAS (FORMAT A4) ---
   const handleDownloadImage = (tx: GroupedTransaction) => {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Config Canvas
-    const width = 400; // Lebar standar (mirip struk)
-    const padding = 20;
-    const lineHeight = 25;
-    const font = "14px 'Courier New', monospace";
-    const boldFont = "bold 14px 'Courier New', monospace";
-    const headerFont = "bold 18px 'Courier New', monospace";
-    
-    // 1. Hitung Tinggi Canvas Otomatis
-    let height = 180; // Header & Info Dasar
-    height += tx.items.length * (lineHeight * 2.5); // Item List
-    height += 150; // Footer & Total
-    
-    // Hitung tambahan tinggi jika ada hutang lama
     const sisaNotaIni = Math.max(0, tx.total_price - tx.total_paid);
     const hutangLama = groupedTransactions
       .filter(t => t.customer_name === tx.customer_name && t.id !== tx.id && new Date(t.created_at) < new Date(tx.created_at))
       .reduce((sum, t) => sum + Math.max(0, t.total_price - t.total_paid), 0);
     const totalTagihan = sisaNotaIni + hutangLama;
 
-    if (hutangLama > 0) height += 80;
-
-    // Set Ukuran Canvas
+    // Lebar dokumen layaknya kertas A4
+    const width = 800; 
+    let height = 480 + (tx.items.length * 40) + (hutangLama > 0 ? 60 : 0);
+    
     canvas.width = width;
     canvas.height = height;
     
-    // 2. Mulai Menggambar
-    ctx.fillStyle = "#ffffff"; // Background Putih
+    // Background Putih
+    ctx.fillStyle = "#ffffff"; 
     ctx.fillRect(0, 0, width, height);
     
-    ctx.fillStyle = "#000000"; // Teks Hitam
-    ctx.textAlign = "center";
-    let y = 40;
-
-    // Header
-    ctx.font = headerFont;
-    ctx.fillText("PA IYAT BROILER", width / 2, y); y += 25;
-    ctx.font = "12px 'Courier New', monospace";
-    ctx.fillText("Jl. Wr. Lobak, Gandasari,", width / 2, y); y += 18;
-    ctx.fillText("Kec. Katapang, Kab. Bandung 40921", width / 2, y); y += 18;
-    
-    // Garis Putus
-    y += 10;
-    ctx.beginPath();
-    ctx.setLineDash([5, 5]);
-    ctx.moveTo(padding, y);
-    ctx.lineTo(width - padding, y);
-    ctx.stroke();
-    y += 25;
-
-    // Info Transaksi
-    ctx.textAlign = "left";
-    ctx.font = font;
-    ctx.fillText(`Tgl : ${new Date(tx.date).toLocaleDateString('id-ID')}`, padding, y); y += 20;
-    ctx.fillText(`Plg : ${tx.customer_name}`, padding, y); y += 20;
-    ctx.fillText(`Jam : ${new Date(tx.created_at).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}`, padding, y); y += 20;
-
-    // Garis
-    y += 10;
-    ctx.beginPath();
-    ctx.setLineDash([]);
-    ctx.moveTo(padding, y);
-    ctx.lineTo(width - padding, y);
-    ctx.stroke();
-    y += 25;
-
-    // List Barang
-    tx.items.forEach(item => {
-      const isPcs = item.unit_type === 'pcs' || (item.weight === 0 && item.quantity > 0);
-      let detailText = isPcs 
-        ? `${item.quantity} Pcs @${formatCurrency(item.price_per_kg)}`
-        : `${item.quantity > 0 ? item.quantity + ' ekor x ' : ''}${item.weight} Kg @${formatCurrency(item.price_per_kg)}`;
-
-      // Nama Barang & Harga Total
+    // Fungsi inti untuk menggambar isi
+    const drawContent = () => {
+      ctx.fillStyle = "#000000"; 
+      
+      // Teks Kop Surat
       ctx.textAlign = "left";
-      ctx.font = boldFont;
-      ctx.fillText(item.product_type, padding, y);
+      ctx.font = "bold 26px Arial";
+      ctx.fillText("PA IYAT BROILER", 140, 60);
+      ctx.font = "14px Arial";
+      ctx.fillText("Jl. Wr. Lobak, Gandasari, Kec. Katapang, Kab. Bandung 40921", 140, 85);
+
+      // Garis Bawah Header
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(40, 110);
+      ctx.lineTo(760, 110);
+      ctx.stroke();
+
+      // Info Transaksi
+      ctx.font = "bold 14px Arial";
+      ctx.fillText(`Tanggal   : ${new Date(tx.date).toLocaleDateString('id-ID', {day: '2-digit', month: 'long', year: 'numeric'})}`, 40, 150);
+      ctx.fillText(`Pelanggan : ${tx.customer_name}`, 40, 175);
+
+      // --- Header Tabel ---
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(40, 200); ctx.lineTo(760, 200);
+      ctx.moveTo(40, 235); ctx.lineTo(760, 235);
+      ctx.stroke();
+
+      ctx.fillText("No", 50, 222);
+      ctx.fillText("Nama barang", 100, 222);
+      ctx.fillText("Jumlah", 300, 222);
+      ctx.fillText("Berat", 420, 222);
+      ctx.fillText("Harga per kg/pcs", 520, 222);
       ctx.textAlign = "right";
-      ctx.fillText(formatCurrency(item.total_price), width - padding, y);
-      y += 20;
+      ctx.fillText("Jumlah", 750, 222);
 
-      // Detail Qty/Berat
+      // --- Isi Tabel ---
       ctx.textAlign = "left";
-      ctx.font = "12px 'Courier New', monospace";
-      ctx.fillStyle = "#555";
-      ctx.fillText(detailText, padding, y);
-      ctx.fillStyle = "#000";
-      y += 25;
-    });
+      ctx.font = "14px Arial";
+      let y = 265;
+      
+      tx.items.forEach((item, index) => {
+        const isPcs = item.unit_type === 'pcs' || (item.weight === 0 && item.quantity > 0);
+        const qtyText = isPcs ? `${item.quantity} Pcs` : (item.quantity > 0 ? `${item.quantity} Ekor` : '-');
+        const weightText = !isPcs && item.weight > 0 ? `${item.weight} Kg` : '-';
 
-    // Garis Penutup Item
-    y += 10;
-    ctx.beginPath();
-    ctx.moveTo(padding, y);
-    ctx.lineTo(width - padding, y);
-    ctx.stroke();
-    y += 25;
-
-    // Total Nota
-    ctx.font = boldFont;
-    ctx.textAlign = "left";
-    ctx.fillText("TOTAL NOTA", padding, y);
-    ctx.textAlign = "right";
-    ctx.fillText(formatCurrency(tx.total_price), width - padding, y);
-    y += 25;
-
-    ctx.textAlign = "left";
-    ctx.fillText("BAYAR", padding, y);
-    ctx.textAlign = "right";
-    ctx.fillText(formatCurrency(tx.total_paid), width - padding, y);
-    y += 25;
-
-    ctx.textAlign = "left";
-    ctx.fillText("SISA (Nota Ini)", padding, y);
-    ctx.textAlign = "right";
-    ctx.fillText(formatCurrency(sisaNotaIni), width - padding, y);
-    y += 25;
-
-    // Hutang Lama (Jika Ada)
-    if (hutangLama > 0) {
-        y += 10;
-        ctx.beginPath();
-        ctx.setLineDash([5, 5]);
-        ctx.moveTo(padding, y);
-        ctx.lineTo(width - padding, y);
-        ctx.stroke();
-        y += 25;
-
-        ctx.textAlign = "left";
-        ctx.fillText("Hutang Lama", padding, y);
+        ctx.fillText(`${index + 1}`, 50, y);
+        ctx.fillText(item.product_type, 100, y);
+        ctx.fillText(qtyText, 300, y);
+        ctx.fillText(weightText, 420, y);
+        ctx.fillText(formatCurrency(item.price_per_kg), 520, y);
+        
         ctx.textAlign = "right";
-        ctx.fillText(formatCurrency(hutangLama), width - padding, y);
-        y += 25;
+        ctx.fillText(formatCurrency(item.total_price), 750, y);
+        ctx.textAlign = "left"; // Kembalikan ke left untuk iterasi selanjutnya
+        
+        y += 35;
+      });
 
-        ctx.font = headerFont; // Font Lebih Besar
-        ctx.textAlign = "left";
-        ctx.fillText("TOTAL TAGIHAN", padding, y);
-        ctx.textAlign = "right";
-        ctx.fillText(formatCurrency(totalTagihan), width - padding, y);
-        y += 25;
-    }
+      // Garis Tutup Tabel
+      ctx.beginPath();
+      ctx.moveTo(40, y - 15); 
+      ctx.lineTo(760, y - 15);
+      ctx.stroke();
 
-    // Kotak Status LUNAS/BELUM
-    y += 20;
-    ctx.setLineDash([]);
-    ctx.strokeRect(width/2 - 60, y, 120, 30);
-    ctx.font = boldFont;
-    ctx.textAlign = "center";
-    ctx.fillText(totalTagihan > 0 ? "BELUM LUNAS" : "LUNAS", width/2, y + 20);
-    y += 50;
+      // --- Summary Total ---
+      y += 15;
+      ctx.font = "bold 14px Arial";
+      ctx.fillText("Total Nota", 480, y); ctx.textAlign="right"; ctx.fillText(formatCurrency(tx.total_price), 750, y); ctx.textAlign="left"; y += 25;
+      ctx.fillText("Bayar", 480, y); ctx.textAlign="right"; ctx.fillText(formatCurrency(tx.total_paid), 750, y); ctx.textAlign="left"; y += 25;
+      ctx.fillText("Sisa Nota ini", 480, y); ctx.textAlign="right"; ctx.fillText(formatCurrency(sisaNotaIni), 750, y); ctx.textAlign="left"; y += 25;
 
-    // Footer
-    ctx.font = "12px 'Courier New', monospace";
-    ctx.fillText("Terima Kasih & Berkah Selalu!", width/2, y);
+      if (hutangLama > 0) {
+          y += 10;
+          ctx.beginPath(); ctx.moveTo(480, y-20); ctx.lineTo(760, y-20); ctx.setLineDash([5, 5]); ctx.stroke(); ctx.setLineDash([]);
+          ctx.fillText("Hutang Lama", 480, y); ctx.textAlign="right"; ctx.fillText(formatCurrency(hutangLama), 750, y); ctx.textAlign="left"; y += 25;
+          ctx.font = "bold 16px Arial";
+          ctx.fillText("Total Tagihan", 480, y); ctx.textAlign="right"; ctx.fillText(formatCurrency(totalTagihan), 750, y); ctx.textAlign="left"; y += 25;
+      }
 
-    // 3. Download Gambar
-    const link = document.createElement('a');
-    link.download = `Struk-${tx.customer_name.replace(/\s+/g, '-')}-${new Date().getTime()}.jpg`;
-    link.href = canvas.toDataURL("image/jpeg", 0.9);
-    link.click();
+      // --- Tanda Tangan ---
+      y += 50;
+      ctx.textAlign = "center";
+      ctx.font = "14px Arial";
+      ctx.fillText("Yang menerima", 150, y);
+      ctx.fillText("Hormat kami", 650, y);
+      y += 70;
+      ctx.fillText("(............................)", 150, y);
+      ctx.fillText("(............................)", 650, y);
+
+      // Download Eksekusi
+      const link = document.createElement('a');
+      link.download = `Nota-${tx.customer_name.replace(/\s+/g, '-')}-${new Date().getTime()}.jpg`;
+      link.href = canvas.toDataURL("image/jpeg", 0.9);
+      link.click();
+    };
+
+    // Load Image Logo Dulu Sebelum Menggambar
+    const logoImg = new Image();
+    logoImg.src = '/logo ayam.png';
+    logoImg.onload = () => {
+      // Jika logo berhasil dimuat, gambar logonya lalu jalankan drawContent
+      ctx.drawImage(logoImg, 40, 30, 80, 80);
+      drawContent();
+    };
+    logoImg.onerror = () => {
+      // Jika logo gagal dimuat (misal typo nama file), tetap buat struk tanpa gambar
+      console.warn("Gagal memuat logo ayam.png");
+      drawContent();
+    };
   };
-
-  const formatCurrency = (val: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(val);
   
   // --- HITUNG SUMMARY ---
   let calculatedTotalEkor = 0;
@@ -338,7 +396,7 @@ const LaporanPenjualan = () => {
     const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
     const link = document.createElement('a');
     link.href = URL.createObjectURL(new Blob([csvContent], { type: 'text/csv;charset=utf-8;' }));
-    link.download = `Laporan_Gacor_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `Laporan_Penjualan_${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
   };
 
@@ -386,8 +444,11 @@ const LaporanPenjualan = () => {
                 <TableCell className="text-center"><Badge variant="outline" className={tx.payment_status === 'Lunas' ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}>{tx.payment_status}</Badge></TableCell>
                 <TableCell className="text-center">
                   <div className="flex justify-center gap-1">
+                    {/* Tombol Download JPG */}
                     <Button size="icon" variant="ghost" className="h-8 w-8 text-blue-600 hover:bg-blue-50" onClick={() => handleDownloadImage(tx)}><ImageIcon className="h-4 w-4" /></Button>
+                    {/* Tombol Print A4 */}
                     <Button size="icon" variant="ghost" className="h-8 w-8 text-gray-500" onClick={() => handlePrint(tx)}><Printer className="h-4 w-4" /></Button>
+                    {/* Tombol Bayar */}
                     <Button size="icon" variant="outline" className="h-8 w-8 border-green-200 text-green-600 hover:bg-green-50" onClick={() => {setSelectedTx(tx); setInputPayment(tx.total_paid.toString()); setIsDialogOpen(true)}}><Wallet className="h-4 w-4" /></Button>
                   </div>
                 </TableCell>
